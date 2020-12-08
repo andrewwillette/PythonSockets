@@ -22,15 +22,21 @@ def accept_wrapper(sock):
     conn.setblocking(False)
     data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
     events = selectors.EVENT_READ | selectors.EVENT_WRITE
+    print("accept_wrapper conn is ")
+    print(conn)
     sel.register(conn, events, data=data)
 
 def service_connection(key, mask):
     sock = key.fileobj
     data = key.data
+    print("service_connection mask is ")
+    print(mask)
     if mask & selectors.EVENT_READ:
         recv_data = sock.recv(1024)
         if recv_data:
             data.outb += recv_data
+            print("data.outb is ")
+            print(data.outb)
         else:
             print('closing connection to', data.addr)
             sel.unregister(sock)
@@ -41,13 +47,16 @@ def service_connection(key, mask):
             sent = sock.send(data.outb)
             data.outb = data.outb[sent:]
 
-
 while True:
     events = sel.select(timeout=None)
+    print(events)
     for key, mask in events:
         if key.data is None:
+            print('key.data is None')
+            print(key)
             accept_wrapper(key.fileobj)
         else:
-            service_connection(key,mask)
-
-
+            print("key.data is not None")
+            print(key)
+            print(key.data)
+            service_connection(key, mask)
