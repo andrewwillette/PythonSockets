@@ -96,7 +96,7 @@ class Message:
             content = {"result": f'Error: invalid action "{action}".'}
         content_encoding = "utf-8"
         response = {
-            "content_bytes": self._json_encode(content, content_encoding)
+            "content_bytes": self._json_encode(content, content_encoding),
             "content_type": "text/json",
             "content_encoding": content_encoding,
         }
