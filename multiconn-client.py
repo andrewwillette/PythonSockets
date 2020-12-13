@@ -1,4 +1,5 @@
 #!/usr/local/bin/python3.8
+import sys
 import selectors
 import socket
 import types
@@ -22,3 +23,46 @@ def start_connections(host, port, num_conns):
                                      messages=list(messages),
                                      outb=b'')
         sel.register(sock, events, data=data)
+
+def service_connection(key, mask):
+    sock = key.fileobj
+    data = key.data
+    if mask & selectors.EVENT_READ:
+        recv_data = sock.recv(1024)     # should be ready to read
+        if recv_data:
+            print("received ", repr(recv_data), "from connection", data.connid)
+            data.recv_total += len(recv_data)
+        if not recv_data or data.recv_total == data.msg_total:
+            print("closing connection", data.connid)
+            sel.unregister(sock)
+            sock.close()
+    if mask & selectors.EVENT_WRITE:
+        if not data.outb and data.messages:
+            data.outb = data.messages.pop(0)
+        if data.outb:
+            print("sending", repr(data.outb), "to connection", data.connid)
+            sent = sock.send(data.outb)     # should be ready to write
+            data.outb = data.outb[sent:]
+
+
+if len(sys.argv) != 4:
+    print("usage:", sys.argv[0], "<host> <port> <num_connections>")
+    sys.exit(1)
+
+
+host, port, num_conns = sys.argv[1:4]
+start_connections(host, int(port), int(num_conns))
+
+try:
+    while True:
+        events = sel.select(timeout = 1)
+        if events:
+            for key, mask in events:
+                service_connection(key, mask)
+        # check for a socket being monitored to continue
+        if not sel.get_map():
+            break
+except KeyboardInterrupt:
+    print("caught keyboard interrupt, exiting")
+finally:
+    sel.close()
