@@ -21,7 +21,7 @@ if len(sys.argv) != 3:
     print("usage:", sys.argv[0], "<host> <port>")
     sys.exit(1)
 
-host, port = sys.argv[1], sys.argv[2]
+host, port = sys.argv[1], int(sys.argv[2])
 lsock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
 # avoid bind() exception: OSError: [Errno 48] Address already in use
 lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -49,6 +49,7 @@ class Message:
                 raise RuntimeError("Peer closed.")
 
     def _write(self):
+        """writes data back to the socket which it received data from"""
         if self._send_buffer:
             print("sending", repr(self._send_buffer), "to", self.addr)
             try:
@@ -161,10 +162,18 @@ class Message:
     def process_protoheader(self):
         hdrlen = 2
         if len(self._recv_buffer) >= hdrlen:
-            self._jsonheader_len = self._json_decode(
+            self._jsonheader_len = struct.unpack(
+                ">H", self._recv_buffer[:hdrlen]
+            )[0]
+            self._recv_buffer = self._recv_buffer[hdrlen:]
+
+    def process_jsonheader(self):
+        hdrlen = self._jsonheader_len
+        if len(self._recv_buffer) >= hdrlen:
+            self.jsonheader = self._json_decode(
                 self._recv_buffer[:hdrlen], "utf-8"
             )
-            self._recv_buffer = self._recv_buffer[hdrlen:]
+            self._recv_buffer = self.recv_buffer[hdrlen:]
             for reqhdr in (
                 "byteorder",
                 "content-length",
