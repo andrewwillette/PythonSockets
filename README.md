@@ -73,23 +73,23 @@ TODO: Make this not suck....
               | 
               V
              bind
-              |
+              |                         Server creating listening socket
               V
             listen
               |
               V             socket
             accept            |
               |               V
-              |<code><</code>---------<code>></code> connect
+              |<---------->connect      Establishing connection, three-way handshake
               |               |
               |               V
-         -->recv <code><</code>---------- send
-         |     |               |
-         |     V               V
-         --send<code><</code>----------- recv
-              |                |
-              V                V
-            recv <code><</code>---------close
+         -->recv<-----------send<--     Client sending data, server receiving data
+         |     |              |   |
+         |     V              V   |
+         --send------------>recv---     server sending data, client receiving data
+              |               |
+              V               V
+            recv<-----------close       client sending close message
               |
               V
             close
