@@ -1,5 +1,5 @@
 Following [Real Python tutorial](https://realpython.com/python-sockets/)
-A majority of this readme is a manually copied version of the tutorial linked above. Thank you Nathan Jennings, you are the man with a well spelled-out plan.
+A majority of this readme is a manually copied version of that tutorial. Thank you Nathan Jennings, you are the man with a well spelled-out plan.
 
 # Socket Programming in Python
 
@@ -13,7 +13,7 @@ This tutorial has three different iterations of building a socket server and cli
 
 By the end of this tutorial, you'll understand how to use the main functions and methods in Python's <code>socket</code> module to write your own client-server applications. This includes showing you how to use a custom class to send messages and data between endpoints that you can build upon and utilize for your own applications.
 
-The examples in this tutorial use Python 3.6. [You can find the original source code on github](https://github.com/realpython/materials/tree/master/python-sockets-tutorial].
+The examples in this tutorial use Python 3.6. [You can find the original source code on github](https://github.com/realpython/materials/tree/master/python-sockets-tutorial).
 
 Networking and sockets are large subjects. Literal volumes have been written about them. If you're new to sockets or networking, it's completely normal if you feel overwhelmed with all of the terms and pieces.
 
@@ -44,6 +44,56 @@ The primary socket API functions and methods in this module are:
 - <code>send()</code>
 - <code>recv()</code>
 - <code>close()</code>
+
+Python provides a convenient and consisten API that maps directly to these system calls, their C counterparts. We'll look at how these are used together in the next section.
+
+As part of its standard library, Python also has classes that make using these low-level socket functions easier. Although it's not covered in this tutorial, see the [socketserver module](https://docs.python.org/3/library/socketserver.html), a framework for network servers. There are also many modules available that implement higher-level Internet protocols like HTTP and SMTP. For an overview, see [Internet Protocols and Support](https://docs.python.org/3/library/internet.html). 
+
+## TCP Sockets
+
+As you will see shortly, we will create a socket object using <code>socket.socket()</code> and specify the socket type as <code>socket.SOCK_STREAM</code>. When you do that, the default protocol that's used is the [Transmission Control Protocol](https://en.wikipedia.org/wiki/Transmission_Control_Protocol). This is a good default and probably what you want.
+
+Why should you use TCP? The Transmission Control Protocol (TCP):
+
+- **Is reliable**: packets dropped in the network are detected and retransmitted by the sender.
+- **Has in-order data delivery**: data is read by your application in the order it was written by the sender.
+
+In contrast, [User Datagram Protocol(UDP)](https://en.wikipedia.org/wiki/User_Datagram_Protocol) sockets created with <code>socket.SOCK_DGRAM</code> aren't reliable, and data read by the receiver can be out-of-order from the sender's writes.
+
+Why is this important? Networks are a best-effort delivery system. There's no guarantee that your data will reach its destination or that you'll receive what's been sent to you.
+
+Network devices (for example, routers and switches), have finite bandwidth available and their own inherent system limitations. They have CPUs, memory, buses, and interface packet buffers, just like our clients and servers. TCP relieves you from having to worry about [packet loss](https://en.wikipedia.org/wiki/Packet_loss), data arriving out-of-order, and many other things that invariably happen when you're communicating across a network.
+
+In the diagram below, let's look at the sequence of socket API calls and data flow for TCP:
+
+TODO: Use graphviz or something or another to make this look good...
+
+Server          Client
+socket
+  |
+  V
+ bind
+  |
+  V
+listen
+  |
+  V             socket
+accept            |
+  |               V
+  |<code><</code>---------<code>></code> connect
+  |               |
+  |               V
+recv <code><</code>---------- send
+  |               |
+  V               V
+send             recv
+  |                |
+  V                V
+recv <code><</code>---------close
+  |
+  V
+close
+
 
 The multi-connection client and server example is definitely an improvement compared with where we started. However, let's take one more step and address the shortcomings of the previous multiconn example in a final implementation: the application client and server.
 
