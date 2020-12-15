@@ -2,11 +2,55 @@ Following tutorial at:
     https://realpython.com/python-sockets/
     Much(majority) of this readme is a manually copied version of the tutorial linked above.
 
+# Socket Programming in Python
+
+Sockets and the socket API are used to send messages across a network. They provide a form of inter-process communication (IPC). The network can be a logical, local network to the computer, or one that's physically connected to an external network, with its own connections to other networks. The obvious example is the Internet, which you connect to via your ISP.
+
+This tutorial has three different iterations of building a socket server and client with Python.
+
+1. We'll start the tutorial by looking at a simple socket server and client.
+2. Once you've seen the API and how things work in this initial example, we'll look at an improved version that handles multiple connections simultaneously.
+3. Finally, we'll progress to building an example server and client that functions like a full-fledged socket application, complete with its own custom header and content.
+
+By the end of this tutorial, you'll understand how to use the main functions and methods in Python's <code>socket</code> module to write your own client-server applications. This includes showing you how to use a custom class to send messages and data between endpoints that you can build upon and utilize for your own applications.
+
+The examples in this tutorial use Python 3.6. [You can find the original source code on github](https://github.com/realpython/materials/tree/master/python-sockets-tutorial].
+
+Networking and sockets are large subjects. Literal volumes have been written about them. If you're new to sockets or networking, it's completely normal if you feel overwhelmed with all of the terms and pieces.
+
+Don't be discouraged though. I've written(copied) this tutorial for you. As we do with Python, we can learn a little bit at a time. Use your browser's bookmark feature and come back when you're ready for the next section.
+
+## Background
+
+Sockets have a long history. Their use [originated with ARPANET](https://en.wikipedia.org/wiki/Network_socket#History) in 1971 and later became an API in the Berkeley Software Distribution (BSD) operating system released in 1983 called [Berkeley sockets](https://en.wikipedia.org/wiki/Berkeley_sockets).
+
+When the Internet took off in the 1990s with the World Wide Web, so did network programming. Web servers and browsers weren't the only applications taking the advantage of newly connected networks and using sockets. Client-server applications of all types and sizes came into widespread use.
+
+Today, although the underlying protocols used by the socket API have evolved over the years, and we've seen new ones, the low-level API has remained the same.
+
+The most common type of socket applications are client-server applications, where one side acts as the server and waits for connections from clients. This is the type of application that I'll be covering in this tutorial. More specifically, we'll look at the socket API for internet [Internet sockets](https://en.wikipedia.org/wiki/Berkeley_sockets), sometimes called Berkeley or BSD sockets. There are also [Unix domain sockets](https://en.wikipedia.org/wiki/Unix_domain_socket), which can only be used to communicate between the processes on the same host.
+
+## Socket API Overview
+
+Python's [socket module](https://docs.python.org/3/library/socket.html) provides an interface to the Berkeley sockets API. This is the module that we'll use and discuss in this tutorial.
+
+The primary socket API functions and methods in this module are:
+
+- <code>socket()</code>
+- <code>bind()</code>
+- <code>listen()</code>
+- <code>accept()</code>
+- <code>connect()</code>
+- <code>connect_ex()</code>
+- <code>send()</code>
+- <code>recv()</code>
+- <code>close()</code>
+
 The multi-connection client and server example is definitely an improvement compared with where we started. However, let's take one more step and address the shortcomings of the previous multiconn example in a final implementation: the application client and server.
 
-We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in teh examples.
+We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in the examples.
 
-Now that you're familiar with the basic API, non-blocking sockets, and select(), we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I know you wouldn't forget.
+Now that you're familiar with the basic API, non-blocking sockets, and <code>select()</code>, we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I know you wouldn't forget.
 
 First, let's address the errors:
 
@@ -183,7 +227,7 @@ def read(self):
         if self.jsonheader is None:
             self.process_jsonheader()
 
-The _read() method is called first. It calls socket.recv() to read data from the socket and store it in a receive buffer. Remember that when socket.recv() is called, all of the data that makes up a complete message may not have arrived yet. socket.recv() may need to be called again. This is why there are state checks for each part of the message before calling the appropriate method to process it.
+The <code>_read()</code> method is called first. It calls <code>socket.recv()</code> to read data from the socket and store it in a receive buffer. Remember that when socket.recv() is called, all of the data that makes up a complete message may not have arrived yet. socket.recv() may need to be called again. This is why there are state checks for each part of the message before calling the appropriate method to process it.
 
 Before a method processes its part of the message, it first checks to make sure enough bytes have been read into the receive buffer. If there are, it processes its respective bytes, removes them from the buffer and writes its output to a variable that's used by the next processing stage. Since there are three components to a message, there are three state checks and process method calls:
 
