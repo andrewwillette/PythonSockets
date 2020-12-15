@@ -1,6 +1,5 @@
-Following tutorial at:
-    https://realpython.com/python-sockets/
-    Much(majority) of this readme is a manually copied version of the tutorial linked above.
+Following [Real Python tutorial](https://realpython.com/python-sockets/)
+A majority of this readme is a manually copied version of the tutorial linked above. Thank you Nathan Jennings, you are the man with a well spelled-out plan.
 
 # Socket Programming in Python
 
