@@ -69,30 +69,30 @@ In the diagram below, let's look at the sequence of socket API calls and data fl
 TODO: Use graphviz or something or another to make this look good...
 
 Server          Client
-socket
-  |
-  V
- bind
-  |
-  V
-listen
-  |
-  V             socket
-accept            |
-  |               V
-  |<code><</code>---------<code>></code> connect
-  |               |
-  |               V
-recv <code><</code>---------- send
-  |               |
-  V               V
-send             recv
-  |                |
-  V                V
-recv <code><</code>---------close
-  |
-  V
-close
+socket <br/>
+  | <br/>
+  V<br/>
+ bind<br/>
+  |<br/>
+  V<br/>
+listen<br/>
+  |<br/>
+  V             socket<br/>
+accept            |<br/>
+  |               V<br/>
+  |<code><</code>---------<code>></code> connect<br/>
+  |               |<br/>
+  |               V<br/>
+recv <code><</code>---------- send<br/>
+  |               |<br/>
+  V               V<br/>
+send             recv<br/>
+  |                |<br/>
+  V                V<br/>
+recv <code><</code>---------close<br/>
+  |<br/>
+  V<br/>
+close<br/>
 
 
 The multi-connection client and server example is definitely an improvement compared with where we started. However, let's take one more step and address the shortcomings of the previous multiconn example in a final implementation: the application client and server.
