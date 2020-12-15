@@ -66,8 +66,8 @@ Network devices (for example, routers and switches), have finite bandwidth avail
 
 In the diagram below, let's look at the sequence of socket API calls and data flow for TCP:
 
-TODO: Use graphviz or something or another to make this look good...
-
+TODO: Make this not suck....
+<pre>
 Server          Client
 socket <br/>
   | <br/>
@@ -93,7 +93,7 @@ recv <code><</code>---------close<br/>
   |<br/>
   V<br/>
 close<br/>
-
+</pre>
 
 The multi-connection client and server example is definitely an improvement compared with where we started. However, let's take one more step and address the shortcomings of the previous multiconn example in a final implementation: the application client and server.
 
