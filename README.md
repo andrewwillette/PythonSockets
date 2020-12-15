@@ -66,9 +66,9 @@ Network devices (for example, routers and switches), have finite bandwidth avail
 
 In the diagram below, let's look at the sequence of socket API calls and data flow for TCP:
 
-TODO: Make this not suck....
 <pre>
             Server          Client
+
             socket
               | 
               V
@@ -95,6 +95,64 @@ TODO: Make this not suck....
             close
 </pre>
 
+The left hand-column represents the server. On the right-hand side is the client.
+
+Starting in the top left-hand column, note the API calls the server makes to setup a "listening" socket:
+
+- <code>socket()</code>
+- <code>bind()</code>
+- <code>listen()</code>
+- <code>accept()</code>
+
+A listening socket does just what it sounds like. It listens for connections from clients. When a client connects, the server calls <code>accept</code> to accept, or complete, the connection.
+
+The client calls <code>connect()</code> to establish a connection to the server and initiate the three-way handshake. The handshake step is important since it ensures that each side of the connection is reachable in the network, in other words that the client can reach the server and vice-versa. It may be that only one host, client or server, can reach the other.
+
+In the middle is the round-trip section, where data is exchanged between the client and server using calls to <code>send()</code> and <code>recv()</code>.
+
+At the bottom, the client and server <code>close()</code> their respective sockets.
+
+## Echo Client and Server
+
+Now that you've seen an overview of the socket API and how the client and server communicate, let's create our first client and server. We will begin with a simple implementation. The server will simply echo whatever it receives back to the client.
+
+### Echo Server
+
+Here's the server, echo-server.py:
+
+<pre>
+#!/usr/bin/env python3
+
+import socket
+
+HOST = '127.0.0.1'      # standard loopback interface address (localhost)
+PORT = 65432            # port to listen on (non-privileged ports are > 1023)
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.bind((HOST, PORT))
+    s.listen()
+    conn, addr = s.accept()
+    with conn:
+        print('Connected by', addr)
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+            conn.sendall(data)
+</pre>
+
+Let's walk through each API call and see what's happening.
+
+<code>socket.socket()</code> creates a socket object that supports the [context manager type](https://docs.python.org/3/reference/datamodel.html#context-managers), so you can use it in a [with statement](https://docs.python.org/3/reference/compound_stmts.html#with). There's no need to call s.close():
+
+<pre>
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    pass    # use the socket object without calling s.close()
+</pre>
+
+The arguments passed to [socket()](https://docs.python.org/3/library/socket.html#socket.socket) specify the [address family](https://realpython.com/python-sockets/#socket-address-families) and socket type. AF_INET is the Internet address family for [IPv4](https://en.wikipedia.org/wiki/IPv4). SOCK_STREAM is the socket type for [TCP](https://realpython.com/python-sockets/#tcp-sockets), the protocol that will be used to transport our messages in the network.
+
+<code>bind()</code> is used to associate the socket with a specific network interface and port number:
 The multi-connection client and server example is definitely an improvement compared with where we started. However, let's take one more step and address the shortcomings of the previous multiconn example in a final implementation: the application client and server.
 
 We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in the examples.
