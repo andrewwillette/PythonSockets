@@ -295,6 +295,107 @@ $ lsof -i -n
 COMMAND     PID     USER        FD      TYPE        DEVICE      SIZE/OFF    NODE    NAME
 Python      67982   andrew       3u     IPv6        0xecf272    0t0         TCP     *:6543 (LISTEN)
 </pre>
+
+<code>lsof</code> gives you the <code>COMMAND</code>, <code>PID</code>(process id) and <code>USER</code>(user id) of open Internet sockets when used with the <code>-i</code> option. Above is the echo server process.
+
+<code>netstat</code> and <code>lsof</code> have a lot of options available and differ depending on the OS you're running them on. Check the man page or documentation for both. They're definitely worht spending a little time with and getting to know. You will be rewarded. On macOS and Linux, use <code>man netstat</code> and <code>man lsof</code>. For Windows, use <code>netstate /?</code>.
+
+Here's a common error you will see when a connection attempt is made to a port with no listening socket:
+
+<pre>
+$ ./echo-client.py
+Traceback (most recent call last):
+    File "./echo-client.py", line 9, in <module>
+        s.connect((HOST, PORT))
+ConnectionRefusedError: [Errno 61] Connection refused
+</pre>
+
+Either the specified port number is wrong or the server isn't running. Or maybe there's a firewall in the path that's blocking the connection, which can be easy to forget about. You may also see the error <code>Connection timed out</code>. Get a firewall rule added that allows the client to connect to the TCP port!
+
+There's a list of common [errors](https://realpython.com/python-sockets/#errors) in the reference section.
+
+## Communication Breakdown
+
+Let's take a closer look at how the client and server communicated with eachother :
+
+<pre>
+        ____________                    ________________
+        |   Server |                    | Client       |
+        |  Process |                    | Process      |
+        |          |                    |              |
+        |Listening |                    | Connect      |
+        |on TCP    |                    | to 127.0.0.1 |
+        |port 65432|                    | on TCP port  |
+        -----------                     | 65432        |
+             |                          ---------------
+             |          loopback interface     |
+             |          127.0.0.1 (::1)        |
+             -----------------------------------
+
+                            HOST
+</pre>
+
+When using the [loopback](https://en.wikipedia.org/wiki/Localhost) interface (IPv4 address 127.0.0.1 or IPv6 address ::1), data never leaves the host or touches the external network. In the diagram above, the loopback interface is contained inside the host. This represents the internal nature of the loopback interface and that connections and data that transit it are local to the host. This is why you'll also hear the loopback interface and IP address 127.0.0.1 or ::1 referred to as "localhost".
+
+Applications use the loopback interface to communicate with other processes running on the host and for security and isolation from the external network. Since it's internal and accessible only from within the host, it's not exposed.
+
+You can see this in action if you have an application server that uses its own private database. If it's not a database used by other servers, it's probably configured to listen for connections on the loopback interface only. If this is the case, other hosts on the network can't connect to it.
+
+When you use an IP address other than <code>127.0.0.1</code> or <code>::1</code> in your applications, it's probably bound to an [Ethernet](https://en.wikipedia.org/wiki/Ethernet) interface that is connected to an external network. This is your gateway to other hosts outside of your "localhost" kingdom:
+<pre>
+
+       ____________________________               _____________________________
+       |        Server Process     |              | Client Process            |
+       |                           |              |                           |
+       |        Listening on       |              | Connect to Server         |
+       |        TCP port           |              | on TCP port               |  
+       |        65432              |              | 65432                     |
+       |                           |              |                           |
+       | loopback       ethernet   |              | ethernet        loopback  |
+       | interface      interface  |              | interface       interface |
+       | lo0              eth0     |              | eth0            lo0       |
+       -----------------------------              -----------------------------
+                          |                          |
+                          |--------------------------|
+
+                Server Host                                 Client Host
+</pre>
+
+Be careful out there. It's a nasty, cruel world. Be sure to read the section [Using Hostnames](https://realpython.com/python-sockets/#using-hostnames) before venturing from the safe confines of "localhost." There is a security note that applies even if you are not using hostnames and using IP addresses only.
+
+## Handling Multiple Connections
+
+The echo server defintely has its limitations. The biggest being that it serves only one client and then exits. The echo client has this limitation too, but there's an additional problem. When the client makes the following call, it's possible that <code>s.recv()</code> will return only one byte, <code>b'H'</code> from <code>b'Hello, world'</code>:
+
+<pre>
+data = s.recv(1024)
+</pre>
+
+The <code>bufsize</code> argument of <code>1024</code> used above is the maximum amount of data to be received at once. It doesn't mean that <code>recv()</code> will return 1024 bytes.
+
+<code>send()</code> also behaves this way. <code>send()</code> returns the number of bytes sent, which may be less than the size of the data passed in. You are responsible for checking this and calling <code>send()</code> as many times as needed to send all the data.
+
+[Python offical socket.send() doc](https://docs.python.org/3/library/socket.html#socket.socket.send)...
+
+"Applications are responsible for checking that all data has been sent; if only some of the data was transmitted, the application needs to attempt delivery of the remaining data."
+
+We avoided having to do this by using <code>sendall()</code>:
+
+[Python official socket.sendall() doc](https://docs.python.org/3/library/socket.html#socket.socket.sendall)
+
+"Unlike send(), this method continues to send data from bytes until either all data has been sent or an error occurs. None is returned on success."
+
+We have two problems at this point:
+
+- How do we handle multiple connections concurrently?
+- We need to call <code>send()</code> and <code>receive</code> until all data is sent or received.
+
+What do we do? There are many approaches to [concurrency](https://realpython.com/python-concurrency/). More recently, a popular approach is to use [Asynchronous I/O](https://docs.python.org/3/library/asyncio.html). <code>asyncio</code> was introduced into the standard library in Python 3.4. The traditional choice is to use [threads](https://docs.python.org/3/library/threading.html).
+
+The trouble with concurrency is it's hard to get right. There are many subtleties to consider and guard against. All it takes is for one of these to manifest itself and your application may suddenly fail in not-so-subtle ways.
+
+I don't say this to scare you away from learning and using concurrent programming. If your application needs to scale, it's a necessity if you want to use more than one processor or one core. However, for this tutorial, we'll use something that's more traditional than threads and easier to reason about. We're going to use the granddaddy of system calls: <code>[select()](https://docs.python.org/3/library/selectors.html#selectors.BaseSelector.select)</code>.
+
 We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in the examples.
 
 Now that you're familiar with the basic API, non-blocking sockets, and <code>select()</code>, we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I know you wouldn't forget.
