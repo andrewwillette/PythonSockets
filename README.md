@@ -338,28 +338,32 @@ The <code>_read()</code> method is called first. It calls <code>socket.recv()</c
 
 Before a method processes its part of the message, it first checks to make sure enough bytes have been read into the receive buffer. If there are, it processes its respective bytes, removes them from the buffer and writes its output to a variable that's used by the next processing stage. Since there are three components to a message, there are three state checks and process method calls:
 
-Message Component -- Method -- Output
-Fixed-length-header -- process_protoheader() -- self._jsonheader_len
-JSON header -- process_jsonheader() -- self.jsonheader
-Content -- process_request() -- self.request
+|Message Component|Method|Output|
+|-----------------|------|------|
+|Fixed-length-header|process_protoheader()|self._jsonheader_len|
+|JSON header|process_jsonheader()|self.jsonheader|
+|Content|process_request()|self.request|
 
-Next, let's look at write(). This is the server's version:
+Next, let's look at <code>write()</code>. This is the server's version:
 
+<pre>
 def write(self):
     if self.request:
         if not self.response_created:
             self.create_response()
 
     self._write()
+</pre>
 
-write() checks first for a request. If one exists and a response hasn't been created, create_response() is called. create_response() sets the state variable response_created and writes the response to the send buffer.
+<code>write()</code> checks first for a request. If one exists and a response hasn't been created, <code>create_response()</code> is called. <code>create_response()</code> sets the state variable <code>response_created</code> and writes the response to the send buffer.
 
-The _write() method calls socket.send() if there's data in the send buffer.
+The <code>_write()</code> method calls <code>socket.send()</code> if there's data in the send buffer.
 
-Remember that when socket.send() is called, all of the data in the send buffer may not have been queued for transmission. The network buffers for the socket may be full, and socket.send() may need to be called again. This is why there are state checks. create_response() should only be called once, but it's expected that _write() will need to be called multiple times.
+Remember that when <code>socket.send()</code> is called, all of the data in the send buffer may not have been queued for transmission. The network buffers for the socket may be full, and <code>socket.send()</code> may need to be called again. This is why there are state checks. <code>create_response()</code> should only be called once, but it's expected that <code>_write()</code> will need to be called multiple times.
 
-The client version of write() is similar:
+The client version of <code>write()</code> is similar:
 
+<pre>
 def write(self):
     if not self._request_queued:
         self.queue_request()
@@ -368,21 +372,15 @@ def write(self):
         if not self._send_buffer:
             # set selector to listen for read events, we're done writing.
             self._set_selector_events_mask('r') 
+</pre>
 
-Since the client initiates a connection to the server and sends a request first, the state variable _request_queued is checked. If a request hasn't been queued, it calls queue_request(). queue_request() creates the request and writes it to the send buffer. It also sets the state variable _request_queued so it's only called once.
+Since the client initiates a connection to the server and sends a request first, the state variable <code>_request_queued</code> is checked. If a request hasn't been queued, it calls <code>queue_request()</code>. <code>queue_request()</code> creates the request and writes it to the send buffer. It also sets the state variable <code>_request_queued</code> so it's only called once.
 
-Just like the server, _write() calls socket.send() if there's data in the send buffer.
+Just like the server, <code>_write()</code> calls <code>socket.send()</code> if there's data in the send buffer.
 
-The notable difference in the client's version of write() is the last check to see if the request has been queued. This will be explained more in the section Client Main Script, but the reason for this is to tell selector.select() to stop monitoring the socket for write events. If the request has been queued and the send buffer is empty, then we're done writing and we're only interested in read events. There's no reason to be notified that the socket is writeable.
+The notable difference in the client's version of <code>write()</code> is the last check to see if the request has been queued. This will be explained more in the section Client Main Script, but the reason for this is to tell <code>selector.select()</code> to stop monitoring the socket for write events. If the request has been queued and the send buffer is empty, then we're done writing and we're only interested in read events. There's no reason to be notified that the socket is writeable.
 
-I'll wrap up this section by leaving you with one thought. The main purpose of this section was to explain that selector.select() is calling in the Message class via the method process_event() and to describe how state is managed.
+I'll wrap up this section by leaving you with one thought. The main purpose of this section was to explain that <code>selector.select()</code> is calling in the Message class via the method <code>process_event()</code> and to describe how state is managed.
 
-This is important because process_events() will be called many times over the life of the connection. Therefore, make sure that any methods that should only be called once are either checking a state variable themselves, or the state variable set by the method is checked by the caller.
+This is important because <code>process_events()</code> will be called many times over the life of the connection. Therefore, make sure that any methods that should only be called once are either checking a state variable themselves, or the state variable set by the method is checked by the caller.
 
-What exactly is socket.recv in python module?
-socket.recv(bufsize[, flag])    documentation from https://docs.python.org/3/library/socket.html
-Receives data from the socket. The return value is a bytes object representing the data received. The maximum amount of data to be received at once is specified by bufsize. See the Unix manual page recv(2) for the meaning of the optional argument flags; it defaults to zero.
-
-Note: For best match with ahrdware and network realities, the value of bufsize should be a relatively small power of 2, for example, 4096.
-
-Changed in version 3.5: If the system call is interrupted and the signal handler does not raise an exception, the method now retries the system call instead of raising an InterruptedError exception.
