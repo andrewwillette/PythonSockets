@@ -155,6 +155,146 @@ The arguments passed to [socket()](https://docs.python.org/3/library/socket.html
 <code>bind()</code> is used to associate the socket with a specific network interface and port number:
 The multi-connection client and server example is definitely an improvement compared with where we started. However, let's take one more step and address the shortcomings of the previous multiconn example in a final implementation: the application client and server.
 
+<pre>
+HOST = '127.0.0.1'      # standard loopback interface address (localhost)
+PORT = 65432            # port to listen on (non-privileged ports are > 1023)
+
+# ...
+
+s.bind((HOST, PORT))
+</pre>
+
+The values passed to <code>bind()</code> depend on the [address family](https://realpython.com/python-sockets/#socket-address-families) of the socket. In this example, we're using <code>socket.AF_INIT</code> (IPv4). So it expects a 2-tuple: <code>(host, port)</code>.
+
+<code>host</code> can be a hostname, [IP address](https://realpython.com/python-ipaddress-module/), or empty string. If an IP address is used, <code>host</code> should be an IPv4-formatted address string. The IP address <code>127.0.0.1</code> is the standard IPv4 address for the [loopback](https://en.wikipedia.org/wiki/Localhost) interface, so only processes on the host will be able to connect to the server. If you pass an empty string, the server will accept connections on all available IPv4 interfaces.
+
+<code>port</code> should be an integer from 1-65535 (0 is reserved). It's the [TCP port](https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_ports) number to accept connections on from clients. Some systems may require superuser privileges if the port is <code><1024</code>.
+
+A note on using hostnames with <code>bind()</code>:
+
+If you use a hostname in the host portion of IPv4/v6 socket address, the program may show a non-deterministic behavior, as Python uses the first address returned from the DNS resolution. The socket address will be resolved differently into an actual IPv4/v6 address, depending on the results from DNS resolution and/or the host configuration. For deterministic behavior use a numeric address in the host portion.
+
+I'll discuss this later in "Using Hostnames", but it's worth mentioning here. For now, just understand that when using a hostname, you could see different results depending on what's returned from the name resolution process.
+
+It could be anything. The first time you run your application, it might be the address <code>10.1.2.3</code>. The next time it's a different address, <code>192.168.0.1</code>. The third time, it could be <code>172.16.7.8</code>, and so on.
+
+Continuing with the server example, <code>listen()</code> enables a server to <code>accept()</code> connections. It makes it a "listening" socket:
+
+<pre>
+s.listen()
+conn, addr = s.accept()
+</pre>
+
+<code>listen()</code> has a <code>backlog</code> paramter. It specifies the number of unaccepted connections that the system will allow before refusing new connections. Starting in Python 3.5, it's optional. If not specified, a default <code>backlog</code> value is chosen.
+
+If your server receives a lot of connection requests simultaneously, increasing the <code>backlog</code> value may help by setting the maximum length of the queue for pending connections. The maximum value is system dependent. For example, on Linux, see <code>/proc/sys/net/core/somaxconn</code>.
+
+<code>accept()</code> [blocks](https://en.wikipedia.org/wiki/Berkeley_sockets#Blocking_and_non-blocking_mode) and waits for an incoming connection. When a client connects, it returns a new socket object representing the connection and a tuple holding the address of the client. The tuple will contain <code>(host, port)</code> for IPv4 connections or <code>(host, port, flowinfo, scopeid)</code> for IPv6. See [Socket Address Families](https://realpython.com/python-sockets/#socket-address-families) in the reference section for details on the tuple values.
+
+One thing that's imperative to understand is that we now have a new socket object from <code>accept()</code>. This is important since it's the socket that you'll use to communicate with the client. It's distinct from the listening socket that the server is using to accept new connections:
+
+<pre>
+conn, addr = s.accept()
+with conn:
+    print('Connected by', addr)
+    while True:
+        data = conn.recv(1024)
+        if not data:
+            break
+        conn.sendall(data)
+</pre>
+
+After getting the client socket object <code>conn</code> from <code>accept()</code>, an infinite <code>while</code> loop is used to loop over [blocking calls](https://realpython.com/python-sockets/#blocking-calls) to <code>conn.recv()</code>. This reads whatever data the client sends and echoes it back using <code>conn.sendall()</code>.
+
+If <code>conn.recv()</code> returns an empty [bytes](https://docs.python.org/3/library/stdtypes.html#bytes-objects) object, b'', then the client closed the connection and the loop is terminated. The <code>with</code> statement is used with <code>conn</code> to automatically close the socket at the end of the block.
+
+## Echo Client
+
+Now let's look at the client, <code>echo-client.py</code>:
+
+<pre>
+#!/usr/bin/env python3
+
+import socket
+
+HOST = '127.0.0.1'      # the server's hostname or IP address
+PORT = 65432            # the port used by the server
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((HOST, PORT))
+    s.sendall(b'Hello World')
+    data = s.recv(1024)
+
+print('Received', repr(data))
+</pre>
+
+In comparison to the server, the client is pretty simple. It creates a socket object, connects to the server and calls <code>s.sendall()</code> to send its message. Lastly, it calls <code>s.recv()</code> to read the server's reply and then [prints it](https://realpython.com/python-print/).
+
+## Running the Echo Client and Echo Server
+
+Let's run the client and server to see how they behave and inspect what's happening.
+
+Open a terminal or command prompt, navigate to the directory that contains your scripts, and run the server:
+
+<pre>
+$ ./echo-server.py
+</pre>
+
+Your terminal will appear to hang. That's because the server is [blocked](https://realpython.com/python-sockets/#blocking-calls)(suspended) in a call:
+
+<pre>
+conn, addr = s.accept()
+</pre>
+
+It's waiting for a client connection. Now open another terminal window or command prompt and run the client:
+
+<pre>
+$ ./echo-client.py
+Received b'Hello, world'
+</pre>
+
+In the server window, you should see:
+
+<pre>
+$ ./echo-server.py
+Connected by ('127.0.0.1', 64623)
+</pre>
+
+In the output above, the server printed the addr tuple returned from <code>s.accept()</code>. This is the client's IP address and TCP and port number. The port number, 64623, will most likely be different when you run it on your machine.
+
+## Viewing Socket State
+
+To see the current state of sockets on your host, use <code>netstat</code>. It's available by default macOS, Linux, and Windows.
+
+Here's the netstat output from macOS after starting the server:
+
+<pre>
+$ netstat
+Active Internet connections (including servers)
+Proto      Recv-Q Send-Q  Local Address     Foreign Address     (state)
+tcp6       0      0       ::1.65432         *.*                 LISTEN
+</pre>
+
+Notice that <code>Local Address</code> is ::1.65432. If echo-server.py had used <code>HOST = ''</code> instead of <code>HOST = '127.0.0.1'</code>, netstat would show this:
+
+<pre>
+$ netstat
+Active Internet connections (including servers)
+Proto       Recv-Q  Send-Q  Local Address       Foreign Address     (state)
+tcp4        0       0       *.65432             *.*                 LISTENING
+</pre>
+
+<code>Local Address</code> is <code>*.65432</code>, which means all available host interfaces that support the address family will be used to accept incoming connections. In this example, in the call to <code>socket()</code>, <code>socket.AF_INET</code> was used (IPv4). You can see this in the <code>Proto</code> column: <code>tcp4</code>.
+
+I have trimmed the output above to show the echo server only. You'll likely see much more output, depending on the system you're running it on. The things to notice are the columns <code>Proto</code>, <code>Local Address</code> and <code>(state)</code>. In the last example above, netstat shows the echo server is using an IPv4 TCP socket (tcp4), on port 65432 on all interfaces (*.65432), and it's in the listening state (LISTEN).
+
+Another way to see this, along with additional helpful information, is to use lsof (list open files). It's available by default on macOS and can be installed on Linux using your package manager, if it's not already:
+
+<pre>
+$ lsof -i -n
+COMMAND     PID     USER        FD      TYPE        DEVICE      SIZE/OFF    NODE    NAME
+Python      67982   andrew       3u     IPv6        0xecf272    0t0         TCP     *:6543 (LISTEN)
+</pre>
 We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in the examples.
 
 Now that you're familiar with the basic API, non-blocking sockets, and <code>select()</code>, we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I know you wouldn't forget.
@@ -267,17 +407,18 @@ We're really not that far off from the "multiconn" client and server example. Th
 
 As we discussed before and you'll see below, working with sockets involves keeping state. By using a class, we keep all of the state, data, and code bundled together in an organized unit. An instance of the class is created for each socket in the client and server when a connection is started or accepted.
 
-The class is mostly the same for both the client and the server for the wrapper and utility methods. They start with an underscore, like Message._json_encode(). These methods simplify working with the class. They help other methods by allowing them to stay shorter and support the DRY principle.
+The class is mostly the same for both the client and the server for the wrapper and utility methods. They start with an underscore, like <code>Message._json_encode()</code>. These methods simplify working with the class. They help other methods by allowing them to stay shorter and support the DRY principle.
 
 The server's Message class works in essentially the same way as the client's and vice-versa. The difference being that the client initiates the connection and sends a request message, followed by processing the server's response message. Conversely, the server waits for a connection, processes the client's request message, and then sends a response message.
 
 It looks like this:
 
-Step - Endpoint - Action/Message Content
-1 - Client - Sends a Message containing request content
-2 - Server - Receives and processes client request Message
-3 - Server - Sends a Message containing response content
-4 - Client - Receives and processes server response Message
+|Step|Endpoint|Action/Message Content|
+|----|--------|----------------------|
+|1|Client|Sends a Message containing request content|
+|2|Server|Receives and processes client request Message|
+|3|Server|Sends a Message containing response content|
+|4|Client|Receives and processes server response Message|
 
 Here's the file and code layout:
 
