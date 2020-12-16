@@ -396,6 +396,26 @@ The trouble with concurrency is it's hard to get right. There are many subtletie
 
 I don't say this to scare you away from learning and using concurrent programming. If your application needs to scale, it's a necessity if you want to use more than one processor or one core. However, for this tutorial, we'll use something that's more traditional than threads and easier to reason about. We're going to use the granddaddy of system calls: <code>[select()](https://docs.python.org/3/library/selectors.html#selectors.BaseSelector.select)</code>.
 
+<code>select()</code> allows you to check for I/O completion on more than one socket. So you can call select() to see which sockets have I/O ready for reading and/or writing. But this is Python, so there's more. We're going to use [selectors](https://docs.python.org/3/library/selectors.html) module in the standard library so the most efficient implementation is used, regardless of the operating system we happen to be running on:
+
+From the [selectors documentation](https://docs.python.org/3/library/selectors.html)...
+
+"This module allows high-level and efficient I/O multiplexing, built upon the select module primitives. Users are encouraged to use this module instead, unless they want precise control over the OS-level primitives used."
+
+Even though, by using <code>select()</code>, we are not able to run concurrently, depending on your workload, this approach may still be plenty fast. It depends on what your application needs to do when it services a request and the number of clients it needs to support.
+
+<code>[asyncio](https://docs.python.org/3/library/asyncio.html)</code> uses single-threaded cooperative multitasking and an event loop to manage tasks. With <code>select()</code>, we will be writing our own version of an event loop, albeit more simply and synchronously. When using multiple threads, even though you have concurrency, we currently have to use the [GIL](https://realpython.com/python-gil/) with [CPython and PyPy](https://wiki.python.org/moin/GlobalInterpreterLock). This effectively limits the amount of work we can do in parallel anyway.
+
+I say all of this to explain that using <code>select()</code> may be a perfectly fine choice. Don't feel like you have to use <code>asyncio</code>, threads, or the latest asynchronous library. Typically, in a network application, your application is I/O bound: it could be waiting on the local network, endpoints on the other side of the network, on a disk, and so forth.
+
+If you're getting requests from clients that initiate CPU bound work, look at the [concurrent.futures](https://docs.python.org/3/library/concurrent.futures.html) module. It contains the class [ProcessPoolExecutor](https://docs.python.org/3/library/concurrent.futures.html#processpoolexecutor) that uses a pool of processes to execute calls asynchronously.
+
+If you use multiple processes, the operating system is able to schedule your Python code to run in parallel on multiple processors or cores, without the GIL. For ideas and inspiration, see the PyCon talk [John Reese - Thinking Outside the GIL with AsyncIO and Multiprocessing - PyCon 2018](https://www.youtube.com/watch?v=0kXaLh8Fz3k).
+
+In the next section, we will look at examples of a server and client that address these problems. They use <code>select()</code> to handle multiple connections simultaneously and call <code>send()</code> and <code>recv()</code> as many times as needed.
+
+## Multi-Connection Client and Server
+
 We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in the examples.
 
 Now that you're familiar with the basic API, non-blocking sockets, and <code>select()</code>, we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I know you wouldn't forget.
