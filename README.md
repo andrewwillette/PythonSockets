@@ -281,49 +281,57 @@ Step - Endpoint - Action/Message Content
 
 Here's the file and code layout:
 
-Application - File - Code
-Server - app-server.py - The server's main script
-Server - libserver.py - The server's Message class
-Client - app-client.py - The client's main script
-Client - libclient.py - The client's Message class
+|Application|File|Code|
+|-----------|----|----|
+|Server|app-server.py|The server's main script|
+|Server|libserver.py|The server's Message class|
+|Client|app-client.py|The client's main script|
+|Client|libclient.py|The client's Message class|
 
 Message Entry Point
 I'd like to discuss how the message class works by first mentioning an aspect of its design that wasn't immediately obvious to me. Only after refactoring it at least five times did I arrive at what it is currently. Why? Managing state.
 
-After a Message object is created, it's associated with a socket that's monitored for events using selector.register():
+After a Message object is created, it's associated with a socket that's monitored for events using <code>selector.register()</code>:
 
+<pre>
 message = libserver.Message(sel, conn, addr)
 sel.register(conn, selectors.EVENT_READ, data=message)
+</pre>
 
-When events are ready on the socket, they're returned by selector.select(). We can then get a reference back to the message object using the data attribute on the key object and call a method in Message:
+When events are ready on the socket, they're returned by <code>selector.select()</code>. We can then get a reference back to the message object using the data attribute on the key object and call a method in Message:
 
+<pre>
 while True:
     events = sel.select(timeout=None)
     for key, mask in events:
         # ...
         message = key.data
         message.process_events(mask)
+</pre>
 
-Looking at the event loop above, you'll see that sel.select() is in the driver's seat. It's blocking, waiting at the top of the loop for events. It's responsible for waking up when read and write events are ready to be processed on the socket. Which means, indirectly, it's also responsible for calling the method process_events(). This is what I mean when I say the method process_events() is the entry point.
+Looking at the event loop above, you'll see that <code>sel.select()</code> is in the driver's seat. It's blocking, waiting at the top of the loop for events. It's responsible for waking up when read and write events are ready to be processed on the socket. Which means, indirectly, it's also responsible for calling the method <code>process_events()</code>. This is what I mean when I say the method <code>process_events()</code> is the entry point.
 
-Let's see what the process_events() method does:
+Let's see what the <code>process_events()</code> method does:
 
+<pre>
 def process_events(self, mask):
     if mask & selectors.EVENT_READ:
         self.read()
     if mask & selectors.EVENT_WRITE:
         self.write()
+</pre>
 
-That's good: process_events() is simple. It can only do two things: call read() and write().
+That's good: <code>process_events()</code> is simple. It can only do two things: call <code>read()</code> and <code>write()</code>.
 
-This brings us back to managing state. After a few refactorings, I decided that if another method depended on state variables having a certain value, then they would only be called from read() and write(). This keeps the logic as simple as possible as events come in on the socket for processing.
+This brings us back to managing state. After a few refactorings, I decided that if another method depended on state variables having a certain value, then they would only be called from <code>read()</code> and <code>write()</code>. This keeps the logic as simple as possible as events come in on the socket for processing.
 
-This may seem obvious, but the first few iterations of the class were a mix of some methods that checked the current state and, depending on their value, called other methods to process data outside read() or write(). In the end, this proved too complex to manage and keep up with.
+This may seem obvious, but the first few iterations of the class were a mix of some methods that checked the current state and, depending on their value, called other methods to process data outside <code>read()</code> or <code>write()</code>. In the end, this proved too complex to manage and keep up with.
 
-You should defintely modify the class to suit your own needs so it works best for you, but I'd recommend that you keep the state checks and the calls to methods that depend on that state to the read() and write() methods if possible.
+You should defintely modify the class to suit your own needs so it works best for you, but I'd recommend that you keep the state checks and the calls to methods that depend on that state to the <code>read()</code> and <code>write()</code> methods if possible.
 
-Let's look at read(). This is the server's version, but the client's is the same. It just uses a different method name, process_response() instead of process_request():
+Let's look at <code>read()</code>. This is the server's version, but the client's is the same. It just uses a different method name, <code>process_response()</code> instead of <code>process_request()</code>:
 
+<pre>
 def read(self):
     self._read()
 
@@ -333,8 +341,9 @@ def read(self):
     if self._jsonheader_len is not None:
         if self.jsonheader is None:
             self.process_jsonheader()
+</pre>
 
-The <code>_read()</code> method is called first. It calls <code>socket.recv()</code> to read data from the socket and store it in a receive buffer. Remember that when socket.recv() is called, all of the data that makes up a complete message may not have arrived yet. socket.recv() may need to be called again. This is why there are state checks for each part of the message before calling the appropriate method to process it.
+The <code>_read()</code> method is called first. It calls <code>socket.recv()</code> to read data from the socket and store it in a receive buffer. Remember that when <code>socket.recv()</code> is called, all of the data that makes up a complete message may not have arrived yet. <code>socket.recv()</code> may need to be called again. This is why there are state checks for each part of the message before calling the appropriate method to process it.
 
 Before a method processes its part of the message, it first checks to make sure enough bytes have been read into the receive buffer. If there are, it processes its respective bytes, removes them from the buffer and writes its output to a variable that's used by the next processing stage. Since there are three components to a message, there are three state checks and process method calls:
 
