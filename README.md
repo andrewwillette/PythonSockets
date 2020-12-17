@@ -416,6 +416,229 @@ In the next section, we will look at examples of a server and client that addres
 
 ## Multi-Connection Client and Server
 
+In the next two sections, we will create a server and client that handles multiple connections using a <code>selector</code> object created from the [selectors](https://docs.python.org/3/library/selectors.html) module.
+
+### Multi-Connection Server
+
+First, let's look at the multi-connection server, <code>multiconn-server.py</code>. Here's the first part that sets up the listening socket:
+
+<pre>
+import selectors
+sel = selectors.DefaultSelector()
+# ...
+lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+lsock.bind((host, port))
+lsock.listen()
+print('listening on', (host, port))
+lsock.setblocking(False)
+sel.register(lsock, selectors.EVENT_READ, data=None)
+</pre>
+
+The biggest difference between this server and the echo server is the call to <code>lsock.setblocking(False)</code> to configure the socket in non-blocking mode. Calls made to this socket will no longer [block](https://realpython.com/python-sockets/#blocking-calls). When it's used with <code>sel.select()</code>, as you'll see below, we can wait for events on one or more sockets and then read and write data when it's ready.
+
+<code>sel.register()</code> registers the socket to be monitored with <code>sel.select()</code> for the events you're interested in. For the listening socket, we want read events: <code>selectors.EVENT_READ</code>.
+
+<code>data</code> is used to store whatever arbitrary data you'd like along with the socket. It's returned with <code>select()</code> returns. We will use <code>data</code> to keep track of what's been sent and received on the socket.
+
+Next is the event loop:
+
+<pre>
+import selectors
+sel = selectors.DefaultSelect()
+
+# ...
+
+while True:
+    events = sel.select(timeout=None)
+    for key, mask in events:
+        if key.data is None:
+            accept_wrapper(key.fileobj)
+        else:
+            service_connection(key, mask)
+</pre>
+
+<code>[sel.select(timeout=None)](https://docs.python.org/3/library/selectors.html#selectors.BaseSelector.select)</code> [blocks](https://realpython.com/python-sockets/#blocking-calls) until there are sockets ready for I/O. It returns a list of <code>(key, events)</code> tuples, one for each socket. <code>key</code> is a [SelectorKey](https://docs.python.org/3/library/selectors.html#selectors.SelectorKey) <code>namedtuple</code> that contains a <code>fileobj</code> attribute. <code>key.fileobj</code> is the socket object, and <code>mask</code> is an event mask of the operations that are ready.
+
+If <code>key.data</code> is <code>None</code>, then we know it's from the listening socket and we need to <code>accept()</code> the connection. We will call our own <code>accept()</code> wrapper function to get the new socket object and register it with the selector. We will look at it in a moment.
+
+If <code>key.data</code> is not <code>None</code>, then we know it's a client socket that's already been accepted, and we need to service it. <code>service_connection()</code> is then called and passed <code>key</code> and <code>mask</code>, which contains everything we need to operate on the socket.
+
+Let's look at what our <code>accept_wrapper()</code> function does:
+
+<pre>
+def accept_wrapper(sock):
+    conn, addr = sock.accept()      # should be ready to read
+    print('accepted connection from', addr)
+    conn.setblocking(False)
+    data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
+    events = selectors.EVENT_READ | selectors.EVENT_WRITE
+    sel.register(conn, events, data=data)
+</pre>
+
+Since the listening socket was registered for the event <code>selectors.EVENT_READ</code>, it should be ready to read. We call <code>sock.accept()</code> and then immediately call <code>conn.setblocking(False)</code> to put the socket in non-blocking mode.
+
+Remember, this is the main objective in this version of the server since we don't want it to [block](https://realpython.com/python-sockets/#blocking-calls). If it blocks, then the entire server is stalled until it returns. Which means other sockets are left waiting.This is the dreaded "hang" state that you don't want your server to be in.
+
+Next, we create an object to hold the data we want included along with the socket using the class <code>types.SimpleNamespace</code>. Since we want to know when the client connection is ready for reading and writing, both of those events are set using the following:
+
+<pre>
+events = selectors.EVENT_READ | selectors.EVENT_WRITE
+</pre>
+
+The events mask, socket, and data objects are then passed to sel.register().
+
+Now let's look at <code>service_connection()</code> to see how a client connection is handled when it's ready:
+
+<pre>
+def service_connection(key, mask):
+    sock = key.fileobj
+    data = key.data
+    if mask & selectors.EVENT_READ:
+        recv_data = sock.recv(1024)     # should be ready to read
+        if recv_data:
+            data.outb += recv_data
+        else:
+            print('closing connection to', data.addr)
+            sel.unregister(sock)
+            sock.close()
+    if mask & selectors.EVENT_WRITE:
+        if data.outb:
+            print('echoing', repr(data.outb), 'to', data.addr)
+            sent = sock.send(data.outb)     # should be ready to write
+            data.outb = data.outb[sent:]
+</pre>
+
+This is the heart of the simple multi-connection server. <code>key</code> is the <code>namedtuple</code> returned from <code>select()</code> that contains the socket object (<code>fileobj</code>) and <code>data</code> object. <code>mask</code> contains the events that are ready.
+
+If the socket is ready for reading, then <code>mask</code> & <code>selectors.EVENT_READ</code> is true(Note: this makes no f'in sense at all, <code>selectors.EVENT_READ</code> is a reference to the <code>selectors</code> module. The hell is it have state?), and <code>sock.recv()</code> is called. Any data that is read is appended to <code>data.outb</code> so it can be sent later.
+
+Note the <code>else:</code> block if no data is received:
+
+<pre>
+if recv_data:
+    data.outb += recv_data
+else:
+    print('closing connection to', data.addr)
+    sel.unregister(sock)
+    sock.close()
+</pre>
+
+This means that the client has closed their socket, so the server should too. But don't forget to first call <code>sel.unregister()</code> so it's no longer monitored by <code>select()</code>.
+
+When the socket is ready for writing, which should always be the case for a health socket, any received data stored in <code>data.outb</code> is echoed to the client using <code>sock.send()</code>. The bytes sent are then removed from the send buffer:
+
+<pre>
+data.outb = data.outb[sent:]
+</pre>
+
+### Multi-Connection Client
+
+Now let's look at the multi-connection client, <code>multiconn-client.py</code>. It is very similar to the server, but instead of listening for connections, it starts by initiating connections via <code>start_connections()</code>:
+
+<pre>
+messages = [b'Message 1 from client.', b'Message 2 from client.']
+
+
+def start_connections(host, port, num_conns):
+    server_addr = (host, port)
+    for i in range(0, num_conns):
+        connid = i + 1
+        print('starting connection', connid, 'to', server_addr)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setblocking(False)
+        sock.connect_ex(server_addr)
+        events = selectors.EVENT_READ | selectors.EVENT_WRITE
+        data = types.SimpleNamespace(connid=connid,
+                                    msg_total=sum(len(m) for m in messages),
+                                    recv_total=0,
+                                    messages=list(messages),
+                                    outb=b'')
+        sel.register(sock, events, data=data)
+</pre>
+
+<code>num_conns</code> is read from the command-line, which is the number of connections to create to the server. Just like the server, each socket is set to non-blocking mode.
+
+<code>connect_ex()</code> is used instead of <code>connect()</code> since <code>connect</code> would immediately raise a <code>BlockingIOError</code> exception. <code>connect_ex()</code> initially returns an error indicator, <code>errno.EINPROGRESS</code>, instead of raising an exception while the connection is in progress. Once the connection is completed, the socket is ready for reading and writing and is returned as such by <code>select()</code>.
+
+After the socket is setup, the data we want stored with the socket is created using the class <code>types.SimpleNamespace</code>. The messages the client will send to the server are copied using <code>list(messages)</code> since each connection will call <code>socket.send()</code> and modify the list. Everything needed to keep track of what the client needs to send, has sent and received, and the total number of bytes in the messages is stored in the object data.
+
+Let's look at the <code>service_connection()</code>. It's fundamentally the same as the server:
+
+<pre>
+def service_connection(key, mask):
+    sock = key.fileobj
+    data = key.data
+    if mask & selectors.EVENT_READ:
+        recv_data = sock.recv(1024)     # should be ready to read
+        if recv_data:
+            print('received', repr(recv_data), 'from connection', data.connid)
+            data.recv_total += len(recv_data)
+        if not recv_data or data.recv_total == data.msg_total:
+            print('closing connection', data.connid)
+            sel.unregister(sock)
+            sock.close()
+        if mask & selectors.EVENT_WRITE:
+            if not data.outb and data.messages:
+                data.outb = data.messages.pop(0)
+            if data.outb:
+                print('sending', repr(data.outb), 'to connection', data.connid)
+                sent = sock.send(data.outb)     # should be ready to write
+                data.outb = data.outb[sent:]
+</pre>
+
+There's one important difference. It keeps track of the number of bytes it's received from the server so it can close its side of the connection. When the server detects this, it closes its side of the connection too.
+
+Note that by doing this, the server depends on the client being well-behaved: the server expects the client to close its side of the connection when it's done sending messages. If the client doesn't close, the server will leave the connection open. In a real application, you may want to guard against this in your server and prevent client connections from accumulating if they don't send a request from a certain amount of time.
+
+### Running the Multi-Connection Client and Server
+
+Now let's run the <code>multiconn-server.py</code> and <code>multiconn-client.py</code>. They both use [command-line arguments](https://realpython.com/python-command-line-arguments/). You can run them without arguments to see the options.
+
+For the server, pass a <code>host</code> and <code>port</code> number:
+
+<pre>
+$ ./multiconn-server.py
+usage: ./multiconn-server.py <host> <port>
+</pre>
+
+For the client, also pass the number of connections to create to the server, <code>num_connections</code>:
+
+<pre>
+$ ./multiconn-client.py
+usage: ./multiconn-client.py <host> <port> <num_connections>
+</pre>
+
+Below is the server output when listening on the loopback interface on port 65432:
+
+<pre>
+$ ./multiconn-server.py 127.0.0.1 65432
+listening on ('127.0.0.1', 65432)
+accepted connection from ('127.0.0.1', 61354)
+accepted connection from ('127.0.0.1', 61355)
+echoing b'Message 1 from client.Message 2 from client.' to ('127.0.0.1', 61354)
+echoing b'Message 1 from client.Message 2 from client.' to ('127.0.0.1', 61355)
+closing connection to ('127.0.0.1', 61354)
+closing connection to ('127.0.0.1', 61355)
+</pre>
+
+Below is the client output when it creates two connections to the server above:
+
+<pre>
+$ ./multiconn-client.py 127.0.0.1 65432 2
+starting connection 1 to ('127.0.0.1', 65432)
+starting connection 2 to ('127.0.0.1', 65432)
+sending b'Message 1 from client.' to connection 1
+sending b'Message 2 from client.' to connection 1
+sending b'Message 1 from client.' to connection 2
+sending b'Message 2 from client.' to connection 2
+received b'Message 1 from client.Message 2 from client.' from connection 1
+closing connection 1
+received b'Message 1 from client.Message 2 from client.' from connection 2
+closing connection 2
+</pre>
+
+## Application Client and Server
+
 We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in the examples.
 
 Now that you're familiar with the basic API, non-blocking sockets, and <code>select()</code>, we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I know you wouldn't forget.
