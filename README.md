@@ -275,7 +275,7 @@ Proto      Recv-Q Send-Q  Local Address     Foreign Address     (state)
 tcp6       0      0       ::1.65432         *.*                 LISTEN
 </pre>
 
-Notice that <code>Local Address</code> is ::1.65432. If echo-server.py had used <code>HOST = ''</code> instead of <code>HOST = '127.0.0.1'</code>, netstat would show this:
+Notice that <code>Local Address</code> is <code>::1.65432</code>. If echo-server.py had used <code>HOST = ''</code> instead of <code>HOST = '127.0.0.1'</code>, netstat would show this:
 
 <pre>
 $ netstat
@@ -377,13 +377,13 @@ The <code>bufsize</code> argument of <code>1024</code> used above is the maximum
 
 [Python offical socket.send() doc](https://docs.python.org/3/library/socket.html#socket.socket.send)...
 
-"Applications are responsible for checking that all data has been sent; if only some of the data was transmitted, the application needs to attempt delivery of the remaining data."
+`"Applications are responsible for checking that all data has been sent; if only some of the data was transmitted, the application needs to attempt delivery of the remaining data."`
 
 We avoided having to do this by using <code>sendall()</code>:
 
 [Python official socket.sendall() doc](https://docs.python.org/3/library/socket.html#socket.socket.sendall)
 
-"Unlike send(), this method continues to send data from bytes until either all data has been sent or an error occurs. None is returned on success."
+`"Unlike send(), this method continues to send data from bytes until either all data has been sent or an error occurs. None is returned on success."`
 
 We have two problems at this point:
 
@@ -400,7 +400,7 @@ I don't say this to scare you away from learning and using concurrent programmin
 
 From the [selectors documentation](https://docs.python.org/3/library/selectors.html)...
 
-"This module allows high-level and efficient I/O multiplexing, built upon the select module primitives. Users are encouraged to use this module instead, unless they want precise control over the OS-level primitives used."
+`"This module allows high-level and efficient I/O multiplexing, built upon the select module primitives. Users are encouraged to use this module instead, unless they want precise control over the OS-level primitives used."`
 
 Even though, by using <code>select()</code>, we are not able to run concurrently, depending on your workload, this approach may still be plenty fast. It depends on what your application needs to do when it services a request and the number of clients it needs to support.
 
@@ -639,29 +639,33 @@ closing connection 2
 
 ## Application Client and Server
 
-We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out eg rfor brevity and clarity in the examples.
+The multi-connection client and server example is defintely an improvement compared with where we started. However, let's take one more step and address the shortcomings of the previous "multiconn" example in a final implementation: the application client and server.
 
-Now that you're familiar with the basic API, non-blocking sockets, and <code>select()</code>, we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I know you wouldn't forget.
+We want a client and server that handles errors appropriately so other connections aren't affected. Obviously, our client or server shouldn't come crashing down in a ball of fury if an exception isn't caught. This is something we haven't discussed up until now. I've intentionally left out error handling for brevity and clarity in the examples.
+
+Now that you're familiar with the basic API, non-blocking sockets, and <code>select()</code>, we can add some error handling and discuss the "elephant in the room" that I've kept hidden from you behind that large curtain over there. Yes, I'm talking about the custom class I mentioned way back in the introduction. I knew you wouldn't forget.
 
 First, let's address the errors:
 
+[From Pythons official socket documentation](https://docs.python.org/3/library/socket.html)...
+
 `"All errors raise exceptions. The normal exceptions for invalid argument types and out-of-memory conditions can be raised; starting from Python 3.3, errors related to socket or address semantics raise OSError or one of its subclasses.`
 
-We need to catch OSError. Another thing I haven't mentioned in relation to errors is timeouts. You'll see them discussed in many places in the documentation. Timeouts happen and are a "normal" error. Hosts and routers are rebooted, switch ports go bad, cables go bad, cables get unplugged, you name it. You should be prepared for these and other errors and handle them in your code.
+We need to catch <code>OSError</code>. Another thing I haven't mentioned in relation to errors is timeouts. You'll see them discussed in many places in the documentation. Timeouts happen and are a "normal" error. Hosts and routers are rebooted, switch ports go bad, cables go bad, cables get unplugged, you name it. You should be prepared for these and other errors and handle them in your code.
 
-What about the "elephant in the room?" As hinted by the socket type socket.SOCK_STREAM, when using TCP, you're reading from a continuous stream of bytes. It's like reading from a file on disk, but instead you're reading bytes from the network.
+What about the "elephant in the room?" As hinted by the socket type <code>socket.SOCK_STREAM</code>, when using TCP, you're reading from a continuous stream of bytes. It's like reading from a file on disk, but instead you're reading bytes from the network.
 
-However, unlike reading a file, there's no f.seek(). In other words, you can't reposition the socket pointer, if there was one, and move randomly around the data reading whatever, whenever you'd like.
+However, unlike reading a file, there's no <code>[f.seek()](https://docs.python.org/3/tutorial/inputoutput.html#methods-of-file-objects)</code>. In other words, you can't reposition the socket pointer, if there was one, and move randomly around the data reading whatever, whenever you'd like.
 
-When bytes arrive at your socket, there are network buffers involved. Once you've read them, they need to be saved somewhere. Calling recv() again reads the next stream of bytes available from the socket.
+When bytes arrive at your socket, there are network buffers involved. Once you've read them, they need to be saved somewhere. Calling <code>recv()</code> again reads the next stream of bytes available from the socket.
 
-What this means is that you'll be reading from the socket in chunks. You need to call recv() and save the data in a buffer until you've read enough bytes to have a complete message that makes sense to your application.
+What this means is that you'll be reading from the socket in chunks. You need to call <code>recv()</code> and save the data in a buffer until you've read enough bytes to have a complete message that makes sense to your application.
 
 It's up to you to define and keep track of where the message boundaries are. As far as the TCP socket is concerned, it's just sending and receiving raw bytes to and from the network. It knows nothing about what those raw bytes mean.
 
-This brings us to defining and application-layer protocol. What's an application-layer protocol? Put simply, your application will send and receive messages. These messages are your application's protocol.
+This brings us to defining an application-layer protocol. What's an application-layer protocol? Put simply, your application will send and receive messages. These messages are your application's protocol.
 
-In other words, the length and format you choose for these messages define the semantics and behavior of your application. This is directly related to what I explained in the previous paragraph regarding reading bytes from the socket. When you're reading bytes with recv(), you need to keep up with how many bytes were read and figure out where the message boundaries are.
+In other words, the length and format you choose for these messages define the semantics and behavior of your application. This is directly related to what I explained in the previous paragraph regarding reading bytes from the socket. When you're reading bytes with <code>recv()</code>, you need to keep up with how many bytes were read and figure out where the message boundaries are.
 
 How is this done? One way is to always send fixed-length messages. If they're always the same size, then it's easy. When you've read that number of bytes into a buffer, then you know you have one complete message.
 
@@ -675,9 +679,9 @@ I need to mention something regarding sockets and bytes that may affect you. As 
 
 If you receive data and want to use it in a context where it's interpreted as multiple bytes, for example a 4-byte integer, you'll need to take into account that it could be in a format that's not native to your machine's CPU. The client or server on the other end could have a CPU that uses a different byte order than your own. If this is the case, you'll need to convert it to your host's native byte order before using it.
 
-This byte order is referred to as a CPU's endianness. See Byte Endianness in the reference section for details. We'll avoid this issue by taking advantage of Unicode for our message header and using the encoding UTF-8. Since UTF-8 uses an 8-bit encoding, there are no byte ordering issues.
+This byte order is referred to as a CPU's [endianness](https://en.wikipedia.org/wiki/Endianness). See [Byte Endianness](https://realpython.com/python-sockets/#byte-endianness) in the reference section for details. We'll avoid this issue by taking advantage of [Unicode](https://realpython.com/python-encodings-guide/) for our message header and using the encoding UTF-8. Since UTF-8 uses an 8-bit encoding, there are no byte ordering issues.
 
-You can find an explanation in Python's Encodings and Unicode documentation. Note that this applies to the text header only. We'll use an explicit type and encoding defined in the header for the content that's being sent, the message payload. This will allow us to transfer any data we'd like (text or binary), in any format.
+You can find an explanation in Python's [Encodings and Unicode](https://docs.python.org/3/library/codecs.html#encodings-and-unicode) documentation. Note that this applies to the text header only. We'll use an explicit type and encoding defined in the header for the content that's being sent, the message payload. This will allow us to transfer any data we'd like (text or binary), in any format.
 
 You can easily determine the byte order of your machine by using sys.byteorder. For example, on my Intel laptop, this happens:
 
