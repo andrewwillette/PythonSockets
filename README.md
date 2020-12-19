@@ -685,25 +685,39 @@ You can find an explanation in Python's [Encodings and Unicode](https://docs.pyt
 
 You can easily determine the byte order of your machine by using sys.byteorder. For example, on my Intel laptop, this happens:
 
+<pre>
 python3 -c 'import sys; print(repr(sys.byteorder))'
 'little'
+</pre>
 
-If I run this in a virtual machine that emulates a big-endian CPU (PowerPC), then this happens:
+If I run this in a virtual machine that [emulates](https://www.qemu.org/) a big-endian CPU (PowerPC), then this happens:
 
+<pre>
 python3 -c 'import sys; print(repr(sys.byteorder))'
 'big'
+</pre>
 
-In this example application, our application-layer protocol defines the header as Unicode text with a UTF-8 encoding. For the actual content in the message, the message payload, you'll have to swap the byte order manually if needed. This will depend on your application and whether or not it needs to process multi-byte binary data from a machine with different endianness. You can help your client or server implement binary support by adding additional headers and using them to pass parameters, similar to HTTP.
+In this example application, our application-layer protocol defines the header as Unicode text with a UTF-8 encoding. For the actual content in the message, the message payload, you'll have to swap the byte order manually if needed. 
+
+This will depend on your application and whether or not it needs to process multi-byte binary data from a machine with different endianness. You can help your client or server implement binary support by adding additional headers and using them to pass parameters, similar to HTTP.
 
 Don't worry if this doesn't make sense yet. In the next section, you'll see how all of this works and fits together.
 
-Application Protocol Header
+## Application Protocol Header
+
 Let's fully define the protocol header. The protocol header is:
-  Variable length text
-  Unicode with the encodoing UTF-8
-  A Python dictionary serialized using JSON
+- Variable length text
+- Unicode with the encoding UTF-8
+- A Python dictionary serialized using [JSON](https://realpython.com/python-json/)
 
 The required headers, or sub-headers, in the protocol header's dictionary are as follows:
+
+|Name|Description|
+|------|------|
+|byteorder|The byte order of the machine (uses <code>sys.byteorder</code>). This may not be required for your application.|
+|content-length|The length of the content in bytes|
+|content-type|The type of content in the payload, for example, <code>text/json</code> or <code>binary/my-binary-type</code>.|
+|content-encoding|The encoding used by the content, for example, <code>utf-8</code> for Unicode text or <code>binary</code> for binary data.|
 
 byteorder - the byte order of the machine (uses sys.byteorder). This may not be required for your application
 content-length - the length of the content in bytes
