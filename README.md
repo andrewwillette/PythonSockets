@@ -719,80 +719,79 @@ The required headers, or sub-headers, in the protocol header's dictionary are as
 |content-type|The type of content in the payload, for example, <code>text/json</code> or <code>binary/my-binary-type</code>.|
 |content-encoding|The encoding used by the content, for example, <code>utf-8</code> for Unicode text or <code>binary</code> for binary data.|
 
-byteorder - the byte order of the machine (uses sys.byteorder). This may not be required for your application
-content-length - the length of the content in bytes
-content-type - the type of content in the payload, for example, text/json or binary/my-binary-type
-content-encoding - the encoding used by the content, for example, utf-8 for Unicode text or binary for binary data.
-
 These headers inform the receiver about the content in the payload of the message. This allows you to send arbitrary data while providing enough information so the content can be decoded and interpreted correctly by the receiver. Since the headers are in a dictionary, it's easy to add additional headers by inserting key/value pairs as needed.
 
-Sending an Application Message
-There's still a bit of a problem. We have a variable-length header, which is nice and flexible, but how do you know the length of the header when reading it with recv()?
+## Sending an Application Message
 
-When we previously talked about using recv() and message boundaries, I mentioned that fixed-length headers can be inefficient. That's true, but we're going to use a small, 2-byte, fixed-length header to prefix the JSON header that contains its length.
+There's still a bit of a problem. We have a variable-length header, which is nice and flexible, but how do you know the length of the header when reading it with <code>recv()</code>?
+
+When we previously talked about using <code>recv()</code> and message boundaries, I mentioned that fixed-length headers can be inefficient. That's true, but we're going to use a small, 2-byte, fixed-length header to prefix the JSON header that contains its length.
 
 You can think of this as a hybrid approach to sending messages. In effect, we're bootstrapping the message receive process by sending the length of the header first. This makes it easy for our receiver to deconstruct the message.
 
 To give you a better idea of the format, let's look at a message in its entirety:
 
-MESSAGE
+<pre>
+                            MESSAGE
+           ____________________________________________
+           | Fixed Length Header                      |
+           | Type: 2 byte integer                     |
+           | Byte Order: network (big-endian)         |
+           ____________________________________________
+           |  Variable-length JSON Header             |
+           | Type: Unicode text                       |
+           | Encoding: UTF-8                          |
+           | Length: specified by fixed-length header |
+           ____________________________________________
+           | Variable-length Content                  |
+           | Type: specified in JSON header           |
+           | Encoding: specified in JSON header       |
+           | Length: specified in JSON Header         |
+           --------------------------------------------
+</pre>
 
-Fixed Length Header
-Type: 2 byte integer
-Byte Order: network (big-endian)
+A message starts with a fixed-length header of 2-bytes that's an integer in network byte order. This is the length of the next header, the variable-length JSON header. Once we've read 2 bytes with <code>recv()</code>, then we know we can process the 2 bytes as an integer and then read that number of bytes before decoding the UTF-8 JSON header.
 
-Variable-length JSON Header
-Type: Unicode text
-Encoding: UTF-8
-Length: specified by fixed-length header
+The [JSON header](https://realpython.com/python-sockets/#application-protocol-header) contains a dictionary of additional headers. One of those is content-length, which is the number of bytes of the message's content (not including the JSON header). Once we've called <code>recv()</code> and read content-length bytes, we've reached a message boundary and read an entire message.
 
-Variable-length Content
-Type: specified in JSON header
-Encoding: specified in JSON header
-Length: specified in JSON Header
-
-
-A message starts with a fixed-length header of 2-bytes that's an integer in network byte order. This is the length of the next header, the variable-length JSON header. Once we've read 2 bytes with recv(), then we know we can process the 2 bytes as an integer and then read that number of bytes before decoding the UTF-8 JSON header.
-
-The JSON header contains a dictionary of additional headers. One of those is content-length, which is the number of bytes of the message's content (not including the JSON header). Once we've called recv() and read content-length bytes, we've reached a message boundary and read an entire message.
-
-Application Message Class
-Finally the payoff! Let's look at the Message class and see how it's used with select() when read and write events happen on the socket.
+## Application Message Class
+Finally the payoff! Let's look at the <code>Message</code> class and see how it's used with <code>select()</code> when read and write events happen on the socket.
 
 For this example application, I had to come up with an idea for what types of messages the client and server would use. We're far beyond toy echo clients and servers at this point.
 
-To keep things simple and still demonstrate how thing would work in a real application, I created an application protocol that implements a basic search feature. The client sends a search request and the server does a lookup for a match. If the request sent by the client isn't recognized as a search, the server assumes it's a binary request and returns a binary response.
+To keep things simple and still demonstrate how things would work in a real application, I created an application protocol that implements a basic search feature. The client sends a search request and the server does a lookup for a match. If the request sent by the client isn't recognized as a search, the server assumes it's a binary request and returns a binary response.
 
-After reading the following sections, running the examples, and experimenting with the code, you'll see how things work. You can then use the Message class as a starting point and modify it for your own use.
+After reading the following sections, running the examples, and experimenting with the code, you'll see how things work. You can then use the <code>Message</code> class as a starting point and modify it for your own use.
 
-We're really not that far off from the "multiconn" client and server example. The event loop code stays the same in app-client.py and app-server.py. What I've done is move the message code into a class named Message and added methods to support reading, writing, and processing of the headers and content. This is a great example for using a class.
+We're really not that far off from the "multiconn" client and server example. The event loop code stays the same in <code>app-client.py</code> and <code>app-server.py</code>. What I've done is move the message code into a class named <code>Message</code> and added methods to support reading, writing, and processing of the headers and content. This is a great example for using a class.
 
 As we discussed before and you'll see below, working with sockets involves keeping state. By using a class, we keep all of the state, data, and code bundled together in an organized unit. An instance of the class is created for each socket in the client and server when a connection is started or accepted.
 
 The class is mostly the same for both the client and the server for the wrapper and utility methods. They start with an underscore, like <code>Message._json_encode()</code>. These methods simplify working with the class. They help other methods by allowing them to stay shorter and support the DRY principle.
 
-The server's Message class works in essentially the same way as the client's and vice-versa. The difference being that the client initiates the connection and sends a request message, followed by processing the server's response message. Conversely, the server waits for a connection, processes the client's request message, and then sends a response message.
+The server's <code>Message</code> class works in essentially the same way as the client's and vice-versa. The difference being that the client initiates the connection and sends a request message, followed by processing the server's response message. Conversely, the server waits for a connection, processes the client's request message, and then sends a response message.
 
 It looks like this:
 
 |Step|Endpoint|Action/Message Content|
 |----|--------|----------------------|
-|1|Client|Sends a Message containing request content|
-|2|Server|Receives and processes client request Message|
-|3|Server|Sends a Message containing response content|
-|4|Client|Receives and processes server response Message|
+|1|Client|Sends a <code>Message</code> containing request content|
+|2|Server|Receives and processes client request <code>Message</code>|
+|3|Server|Sends a <code>Message</code> containing response content|
+|4|Client|Receives and processes server response <code>Message</code>|
 
 Here's the file and code layout:
 
 |Application|File|Code|
 |-----------|----|----|
 |Server|app-server.py|The server's main script|
-|Server|libserver.py|The server's Message class|
+|Server|libserver.py|The server's <code>Message</code> class|
 |Client|app-client.py|The client's main script|
-|Client|libclient.py|The client's Message class|
+|Client|libclient.py|The client's <code>Message</code> class|
 
-Message Entry Point
-I'd like to discuss how the message class works by first mentioning an aspect of its design that wasn't immediately obvious to me. Only after refactoring it at least five times did I arrive at what it is currently. Why? Managing state.
+### Message Entry Point
+
+I'd like to discuss how the <code>Message</code> class works by first mentioning an aspect of its design that wasn't immediately obvious to me. Only after refactoring it at least five times did I arrive at what it is currently. Why? Managing state.
 
 After a Message object is created, it's associated with a socket that's monitored for events using <code>selector.register()</code>:
 
@@ -896,3 +895,269 @@ I'll wrap up this section by leaving you with one thought. The main purpose of t
 
 This is important because <code>process_events()</code> will be called many times over the life of the connection. Therefore, make sure that any methods that should only be called once are either checking a state variable themselves, or the state variable set by the method is checked by the caller.
 
+### Server Main Script
+
+In the server's main script <code>app-server.py</code>, arguments aree read from the command line specify the interface and port to listen on:
+
+<pre>
+$ ./app-server.py
+usage: ./app-server.py <host> <port>
+</pre>
+
+For example, to listen oono the loopback interface on port 65432, enter:
+
+<pre>
+$ ./app-server.py 127.0.0.1 65432
+listening on ('127.0.0.1', 65432)
+</pre>
+
+Use an empty string for <code><host></code> to listen on all interfaces.
+
+After creating the socket, a call is made to <code>socket.setsockopt()</code> with the option <code>socket.SO_REUSEADDR</code>:
+
+<pre>
+# avoid bind() exception: OSError: [Errno 48] Address already in use
+lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+</pre>
+
+Setting this socket option avoids the error <code>Address already in use</code>. You'll see this when starting the server and a previously used TCP socket on the same port has connections in the <code>[TIME_WAIT](http://www.serverframework.com/asynchronousevents/2011/01/time-wait-and-its-design-implications-for-protocols-and-scalable-servers.html)</code> state.
+
+For example, if the server actively closed a connection, it will remain in the <code>TIME_WAIT</code> state for two minutes or more, depending on the operating system. If you try to start the server again before the <code>TIME_WAIT</code> state expires, you'll get an <code>OSError</code> exception of <code>Address already in use</code>. This is a safeguard to make sure that any delayed packets in the network aren't delivered to the wrong application.
+
+The event loop catches any errors so the server can stay up and continue to run:
+
+<pre>
+while True:
+    events = sel.select(timeout=None)
+    for key, mask in events:
+        if key.data is None:
+            accept_wrapper(key.fileobj)
+        else:
+            message = key.data
+            try:
+                message.process_events(mask)
+            except Exception:
+                print('main: error: exception for',
+                    f'{message.addr}:\n{traceback.format_exc()}')
+                message.close()
+</pre>
+
+When a client connection is accepted, a <code>Message</code> object is created:
+
+<pre>
+def accept_wrapper(sock):
+    conn, addr = sock.accept()
+    print('accepted connection from', addr)
+    conn.setblocking(False)
+    message = libserver.Message(sel, conn, addr)
+    sel.register(conn, selectors.EVENT_READ, data=message)
+</pre>
+
+The <code>Message</code> object is associated with the socket in the call to <code>sel.register()</code> and is initially set to be monitored for read events only. Once the request has been read, we'll modify it to listen for write events only.
+
+An advantage of taking this approach in the server is that in most cases, when a socket is healthy and there are no network issues, it will always be writable.
+
+If we told <code>sel.register()</code> to also monitor <code>EVENT_WRITE</code>, the event loop would immediately wakeup and notify us that this is the case. However, at this point, there's no reason to wakeup and call <code>send()</code> on the socket. There's no response to send since a request hasn't been processed yet. This would consume and waste valuable CPU cycles.
+
+### Server Message Class
+
+In the section [Message Entry Point](https://realpython.com/python-sockets/#message-entry-point), we looked at how the <code>Message</code> object was called into action when socket events were ready via <code>process_events()</code>. Now let's look at what happens as data is read on the socket and a component, or piece, of the message is ready to be processed by the server.
+
+The server's message class is in <code>libserver.py</code>.
+
+The methods appear in the class in the order in which processing takes place for a message.
+
+When the server has read at least 2 bytes, the fixed-length header can be processed:
+
+<pre>
+def process_protoheader(self):
+    hdrlen=2
+    if len(self._recv_buffer) >= hdrlen:
+        self._jsonheader_len = struct.unpack('>H', self._recv_buffer[:hdrlen])[0]
+        self._recv_buffer = self._recv_buffer[hdrlen:]
+</pre>
+
+The fixed-length header is a 2-byte integer in network (big-endian) byte order that contains the length of the JSON header. <code>[struct.unpack()](https://docs.python.org/3/library/struct.html)</code> is used to read the value, decode it, and store it in self._jsonheader_len. After processing the piece of the message it’s responsible for, process_protoheader() removes it from the receive buffer.
+
+Just like the fixed-length header, when there’s enough data in the receive buffer to contain the JSON header, it can be processed as well:
+
+<pre>
+def process_jsonheader(self):
+    hdrlen = self._jsonheader_len
+    if len(self._recv_buffer) >= hdrlen:
+        self.jsonheader = self._json_decode(self._recv_buffer[:hdrlen], 'utf-8')
+        self._recv_buffer = self._recv_buffer[hdrlen:]
+        for reqhdr in ('byteorder', 'content-length', 'content-type', 'content-encoding'):
+            if reqhdr not in self.jsonheader:
+                raise ValueError(f'Missing required header "{reqhdr}".')
+</pre>
+
+The method <code>self._json_decode()</code> is called to decode and deserialize the JSON header into a dictionary. Since the JSON header is defined as Unicode with a UTF-8 encoding, <code>utf-8</code> is hardcoded in the call. The result is saved to <code>self.jsonheader</code>. After processing the piece of the message it's responsible for, <code>process_jsonheader()</code> removes it from the receive buffer.
+
+Next is the actual content, or payload, of the message. It's described by the JSON header in <code>self.jsonheader</code>. When content-length bytes are available in the receive buffer, the request can be processed:
+
+<pre>
+def process_request(self):
+    content_len = self.jsonheader['content-length']
+    if not len(self._recv_buffer) >= content_len:
+        return
+    data = self._recv_buffer[:content_len]
+    self._recv_buffer = self._recv_buffer[content_len:]
+    if self.jsonheader['content-type'] == 'text/json':
+        encoding = self.jsonheader['content-encoding']
+        self.request = self._json_decode(data, encoding)
+        print('received request', repr(self.request), 'from', self.addr)
+    else:
+        # binary or unknown content-type
+        self.request = data
+        print(f'received {self.jsonheader["content-type"]} request from', self.addr)
+    # set selector to listen for write events, we're done reading.
+    self._set_selector_events_mask('w')
+</pre>
+
+After saving the message content to the <code>data</code> variable, <code>process_request()</code> removes it from the receive buffer. Then, if the content type is JSON, it decodes and deserializes it. If it's not, for this example application, it assumes it's a binary request and simply prints the content type.
+
+The last thing <code>process_request()</code> does is modify the selector to monitor write events only. In the server's main script, <code>app-server.py</code>, the socket is initially set to monitor read events only. Now that the request has been fully processed, we're no longer interested in reading.
+
+A response can now be created and written to the socket. When the socket is writable, <code>create_response()</code> is called from <code>write()</code>:
+
+<pre>
+def create_response(self):
+    if self.jsonheader['content-type'] == 'text/json'
+        response = self._create_response_json_content()
+    else:
+        # binary or unknown content-type
+        response = self._create_response_binary_content()
+    message = self._create_message(**response)
+    self.response_created = True
+    self._send_buffer += message
+</pre>
+
+A response is created by calling other methods, depending on the content type. In this example application, a simple dictionary lookup is done for JSON requests when <code>action == 'search'</code>. You can define other methods for your applications that get called here.
+
+After creating the response message, the state variable <code>self.response_created</code> is set so <code>write()</code> doesn't call <code>create_response()</code> again. Finally, the response is appended to the send buffer. This is seen by and sent via <code>_write()</code>.
+
+One tricky bit to figure out was how to close the connection after the response is written. I put the call to <code>close()</code> in the method <code>_write()</code>:
+
+<pre>
+def _write(self):
+    if self._send_buffer:
+        print('sending', repr(self._send_buffer), 'to', self.addr)
+        try:
+            # should be ready to write
+            sent = self.sock.send(self._send_buffer)
+        except BlockingIOError:
+            # resource temporarily unavailable (errno EWOULDBLOCK)
+            pass
+        else:
+            self._send_buffer = self._send_buffer[sent:]
+            if sent and not self._send_buffer:
+                self.close()
+</pre>
+
+Although it's somewhat "hidden", I think it's an acceptable trade-off give that the <code>Message</code> class only handles one message per connection. After the response is written, there's nothing left for the server to do. It's completed its work.
+
+### Client Main Script
+
+In the client's main script <code>app-client.py</code>, arguments are read from the command line and used to create requests and start connections to the server:
+
+<pre>
+$ ./app-client.py
+usage: ./app-client.py <host> <port> <action> <value>
+</pre>
+
+Here's an example:
+
+<pre>
+$ ./app-client.py 127.0.0.1 65432 search needle
+</pre>
+
+After creating a dictionary representing the request from the command-line arguments, the host, port, and request dictionary are passed to <code>start_connection()</code>:
+
+<pre>
+def start_connection(host, port, request):
+    addr = (host, port)
+    print('starting connection to', addr)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setblocking(False)
+    sock.connect_ex(addr)
+    events = selectors.EVENT_READ | selectors.EVENT_WRITE
+    message = libclient.Message(sel, sock, addr, request)
+    sel.register(sock, events, data=message)
+</pre>
+
+A socket is created for the server connection as well as a <code>Message</code> object using the request dictionary.
+
+Like the server, the <code>Message</code> object is associated with the socket in the call to <code>sel.register()</code>. However, for the client, the socket is initially set to be monitored for both read and write events. Once the request has been written, we'll modify it to listen for read events only.
+
+This approach gives us the same advantage as the server: not wasting CPU cycles. After the request has been sent, we're no longer interested in write events, so there's no reason to wake up and process them.
+
+### Client Message Class
+
+In the section [Manage Entry Point](https://realpython.com/python-sockets/#message-entry-point), we looked at how the message object was called into action when socket events were ready via <code>process_events()</code>. Now let's look at what happens after data is read and written on the socket and a message is ready to be processed by the client.
+
+The client's message class is in <code>libclient.py</code>.
+
+The methods appear in the class in the order in which processing takes place for a message.
+
+The first task for the client is to queue the request:
+
+<pre>
+def queue_request(self):
+    content = self.request['content']
+    content_type = self.request['type']
+    content_encoding = self.request['encoding']
+    if content_type == 'text/json':
+        req = {
+            'content_bytes': self._json_encode(content, content_encoding),
+            'content_type': content_type,
+            'content_encoding': content_encoding
+        }
+    else:
+        req = {
+            'content_bytes': content,
+            'content_type': content_type,
+            'content_encoding': content_encoding
+        }
+    message = self._create_message(**req)
+    self._send_buffer += message
+    self._request_queued = True
+</pre>
+
+The dictionaries used to create the request, depending on what was passed on the command line, are in the client's main script, <code>app-client.py</code>. The request dictionary is passed as an argument to the class when a <code>Message</code> object is created.
+
+The request message is created and appended to the send buffer, which is then seen by and sent via <code>_write()</code>. The state variable <code>self._request_queued</code> is set so <code>queue_requet()</code> isn't called again.
+
+After the request has been sent, the client waits for a response from the server.
+
+The methods for reading and processing a message in the client are the same as the server. As response data is read from the socket, the <code>proess</code> header methods are called: <code>process_protoheader()</code> and <code>process_jsonheader()</code>.
+
+The difference is in the naming of the final <code>process</code> methods and the fact that they're processing a response, not creating one: <code>process_response()</code>, <code>_process_response_json_content()</code>, and <code>_process_response_binary_content()</code>. 
+
+Last, but certainly not least, is the final call for <code>proces_response()</code>:
+
+<pre>
+def process_response(self):
+    # ...
+    # close when response has been processed.
+    self.close()
+</pre>
+
+### Message Class Wrapup
+
+I'll conclude the <code>Message</code> class discussion by mentioning a couple things that are important to notice with a few of the supporting methods.
+
+Any exceptions raised by the class are caught by the main script in its <code>except</code> clause:
+
+<pre>
+try:
+    message.process_events(mask)
+except Exception:
+    print('main: error: exception for',
+        f'{message.addr}:\n{traceback.format_exc()}')
+    message.close()
+</pre>
+
+Note that the last line:<code>message.close()</code>.
+
+This is a really important line, for more than one reason! Not only does it make sure that the socket is closed, but <code>message.close()</code> also removes the socket from being monitored by <code>select()</code>. This greatly simplifies this code in the class and reduces complexity. If there's an exception or we explicitly raise one ourselves, we know <code>close()</code> will take care of the cleanup.
