@@ -208,7 +208,7 @@ class Message:
             response = self._create_response_json_content()
         else:
             # binary or unknown content-type
-            reponse = self._create_response_binary_content()
+            response = self._create_response_binary_content()
         message = self._create_message(**response)
         self.response_created = True
         self._send_buffer += message

@@ -1209,3 +1209,113 @@ got result: Follow the white rabbit. 🐰
 closing connection to ('10.0.1.1', 65432)
 </pre>
 
+My terminal (iterm2 on mac) is running a shell that's using a text-encoding of Unicode (UTF-8), so the output above prints nicely with emojis.
+
+Let's see if we can find the puppies:
+
+<pre>
+$ ./app-client.py 10.0.1.1 65432 search 🐶
+starting connection to ('10.0.1.1', 65432)
+sending b'\x00d{"byteorder": "big", "content-type": "text/json", "content-encoding": "utf-8", "content-length": 37}{"action": "search", "value": "\xf0\x9f\x90\xb6"}' to ('10.0.1.1', 65432)
+received response {'result': '🐾 Playing ball! 🏐'} from ('10.0.1.1', 65432)
+got result: 🐾 Playing ball! 🏐
+closing connection to ('10.0.1.1', 65432)
+</pre>
+
+Notice the byte string sent over the network for the request in the <code>sending</code> line. It's easier to see if you look for the bytes printed in hex that represent the puppy emoji: <code>\xf0\x0f\x90\xb6</code>. I was able to [enter the emoji](https://support.apple.com/guide/mac-help/use-emoji-and-symbols-on-mac-mchlp1560/mac) for the search since my terminal is using Unicode with the encoding UTF-8.
+
+This demonstrates that we're sending raw bytes over the network and they need to be decoded by the receiver to be interpreted correctly. This is why we went through all the trouble to create a header that contains the content type and encoding.
+
+Here's the server output from both client connections above:
+
+<pre>
+accepted connection from ('10.0.2.2', 55340)
+received request {'action': 'search', 'value': 'morpheus'} from ('10.0.2.2', 55340)
+sending b'\x00g{"byteorder": "little", "content-type": "text/json", "content-encoding": "utf-8", "content-length": 43}{"result": "Follow the white rabbit. \xf0\x9f\x90\xb0"}' to ('10.0.2.2', 55340)
+closing connection to ('10.0.2.2', 55340)
+
+accepted connection from ('10.0.2.2', 55338)
+received request {'action': 'search', 'value': '🐶'} from ('10.0.2.2', 55338)
+sending b'\x00g{"byteorder": "little", "content-type": "text/json", "content-encoding": "utf-8", "content-length": 37}{"result": "\xf0\x9f\x90\xbe Playing ball! \xf0\x9f\x8f\x90"}' to ('10.0.2.2', 55338)
+closing connection to ('10.0.2.2', 55338)
+</pre>
+
+Look at the <code>sending</code> line to see the bytes that were written to the client's socket. This is the server's response message.
+
+You can also test sending binary requests to the server if the action argument is anything other than search:
+
+<pre>
+$ ./app-client.py 10.0.1.1 65432 binary 😃
+starting connection to ('10.0.1.1', 65432)
+sending b'\x00|{"byteorder": "big", "content-type": "binary/custom-client-binary-type", "content-encoding": "binary", "content-length": 10}binary\xf0\x9f\x98\x83' to ('10.0.1.1', 65432)
+received binary/custom-server-binary-type response from ('10.0.1.1', 65432)
+got response: b'First 10 bytes of request: binary\xf0\x9f\x98\x83'
+closing connection to ('10.0.1.1', 65432)
+</pre>
+
+Since the request's <code>content-type</code> is not <code>text/json</code>, the server treats it as a custom binary type and doesn't perform JSON decoding. It simply prints the <code>content-type</code> and returns the first 10 bytes to the client:
+
+<pre>
+$ ./app-server.py '' 65432
+listening on ('', 65432)
+accepted connection from ('10.0.2.2', 55320)
+received binary/custom-client-binary-type request from ('10.0.2.2', 55320)
+sending b'\x00\x7f{"byteorder": "little", "content-type": "binary/custom-server-binary-type", "content-encoding": "binary", "content-length": 37}First 10 bytes of request: binary\xf0\x9f\x98\x83' to ('10.0.2.2', 55320)
+closing connection to ('10.0.2.2', 55320)
+</pre>
+
+## Troubleshooting
+
+### ping
+
+<code>ping</code> will check if a host is alive and connected to the network by sending an [ICMP](https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol) echo request. It communicates directly with the operating system's TCP/IP protocol stack, so it works independently from any application running on the host.
+
+Below is an example of running ping on macOS:
+
+<pre>
+$ ping -c 3 127.0.0.1
+PING 127.0.0.1 (127.0.0.1): 56 data bytes
+64 bytes from 127.0.0.1: icmp_seq=0 ttl=64 time=0.058 ms
+64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.165 ms
+64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=0.164 ms
+
+--- 127.0.0.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0.0% packet loss
+round-trip min/avg/max/stddev = 0.058/0.129/0.165/0.050 ms
+</pre>
+
+Note the statistics at the end of the output. This can be helpful when you're trying to discover intermittent connectivity problems. For example, is there any packet loss? How much latency is there (see the round-trip times)?
+
+If there's a firewall between you and the other host, a ping's echo request may not be allowed. Some firewall administrators implement policies that enforce this. The idea being that they don't want their hosts to be discoverable. If this is the case and you have firewall rules added to allow the hosts to communicate, make sure that the rules also allow ICMP to pass between them.
+
+ICMP is the protocol used by <code>ping</code>, but it's also the protocol TCP and other lower-level protocols use to communicate error messages. If you're experiencing strange behavior or slow connections, this could be the reason.
+
+ICMP messages are identified by type and code. To give you an idea of the important information they carry, here are a few:
+
+|ICMP Type|ICMP Code|Description|
+|---------|---------|-----------|
+|8|0|Echo request|
+|0|0|Echo reply|
+|3|0|Destination network unreachable|
+|3|1|Destination host unreachable|
+|3|2|Destination protocol unreachable|
+|3|3|Destination port unreachable|
+|3|4|Fragmentation required, and DF flag set|
+|11|0|TTL expired in transit|
+
+See the article [Path MTU Discovery](https://en.wikipedia.org/wiki/Path_MTU_Discovery#Problems_with_PMTUD) for information regarding fragmentation and ICMP messages. This is an example of something that can cause strange behavior that I mentioned previously.
+
+### netstat
+
+In the section [Viewing Socket State](https://realpython.com/python-sockets/#viewing-socket-state), we looked at how <code>netstat</code> can be used to display information about sockets and their current state. This utility is available on macOS, Linux, and Windows.
+
+I didn't mention the columns <code>Recv-Q</code> and <code>Send-Q</code> in the example output. These columns will show you the number of bytes that are held in network buffers that are queued for transmission or receipt, but for some reason haven't been read or written by the remote or local application.
+
+To demonstrate this and see how much data I could send before seeing an error, I wrote a test client that connects to a test server and repeatedly calls <code>socket.send()</code>. The test server never calls <code>socket.recv()</code>. It just accpets the connection. This causes the network buffers on the server to fill, which eventually raises an error on the client.
+
+First, I started the server:
+
+<pre>
+$ ./app-server-test.py 127.0.0.1 65432
+listening on ('127.0.0.1', 65432)
+</pre>
