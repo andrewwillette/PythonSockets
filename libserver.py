@@ -23,7 +23,7 @@ class Message:
         self.request = None
         self.response_created = False
 
-    def set_selector_events_mask(self, mode):
+    def _set_selector_events_mask(self, mode):
         """Set selector to listen for events: mode is 'r', 'w', or 'rw'."""
         if mode == "r":
             events = selectors.EVENT_READ
@@ -68,7 +68,7 @@ class Message:
         return json.dumps(obj, ensure_ascii=False).encode(encoding)
 
     def _json_decode(self, json_bytes, encoding):
-        tiow = io.TextIoWrapper(
+        tiow = io.TextIOWrapper(
             io.BytesIO(json_bytes), encoding = encoding, newline=""
         )
         obj = json.load(tiow)
@@ -173,7 +173,7 @@ class Message:
             self.jsonheader = self._json_decode(
                 self._recv_buffer[:hdrlen], "utf-8"
             )
-            self._recv_buffer = self.recv_buffer[hdrlen:]
+            self._recv_buffer = self._recv_buffer[hdrlen:]
             for reqhdr in (
                 "byteorder",
                 "content-length",

@@ -1161,3 +1161,51 @@ except Exception:
 Note that the last line:<code>message.close()</code>.
 
 This is a really important line, for more than one reason! Not only does it make sure that the socket is closed, but <code>message.close()</code> also removes the socket from being monitored by <code>select()</code>. This greatly simplifies this code in the class and reduces complexity. If there's an exception or we explicitly raise one ourselves, we know <code>close()</code> will take care of the cleanup.
+
+The methods <code>Message._read()</code> and <code>Message._write()</code> also contain something interesting:
+
+<pre>
+def _read(self):
+    try:
+        # should be ready to read
+        data = self.sock.recv(4096)
+    except BlockingIOError:
+        # resource temporarily unavailable (errno EWOULDBLOCK)
+        pass
+    else:
+        if data:
+            self._recv_buffer += data
+        else:
+            raise RuntimeError('Peer closed')
+</pre>
+
+Note the <code>except</code> line: <code>except BlockingIOError</code>:
+
+<code>_write()</code> has one too. These lines are important because they catch a temporary error and skip over it using pass. The temporary error is when the socket would [block](https://realpython.com/python-sockets/#blocking-calls), for example if it's waiting on the network or the other end of the connection (its peer).
+
+By catching and skipping over the exception with <code>pass</code>, <code>select()</code> will eventually call us again, and we'll get another chance to read or write the data.
+
+### Running the Application Client and Server
+
+After all this hard work, let's have some fun and run some searches.
+
+In these examples, I'll run the server so it listens on all interfaces by passing an empty string for the <code>host</code> argument. This will allow me to run the client and connect from a virtual machine that's on another network. It emulates a big-endian PowerPC machine.
+
+First, let's start the server:
+
+<pre>
+$ ./app-server.py '' 65432
+listening on ('', 65432)
+</pre>
+
+Now let's run the client and enter a search. Let's see if we can find him:
+
+<pre>
+$ ./app-client.py 10.0.1.1 65432 search morpheus
+starting connection to ('10.0.1.1', 65432)
+sending b'\x00d{"byteorder": "big", "content-type": "text/json", "content-encoding": "utf-8", "content-length": 41}{"action": "search", "value": "morpheus"}' to ('10.0.1.1', 65432)
+received response {'result': 'Follow the white rabbit. '} from ('10.0.1.1', 65432)
+got result: Follow the white rabbit. 🐰
+closing connection to ('10.0.1.1', 65432)
+</pre>
+

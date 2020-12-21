@@ -7,6 +7,7 @@ import traceback
 
 import libclient
 
+sel = selectors.DefaultSelector()
 
 def create_request(action, value):
     if action == "search":
@@ -54,7 +55,7 @@ try:
             except Exception:
                 print(
                     "main: error: exception for",
-                    f"{message.addr}:\n{traceback.formactt_exc()}",
+                    f"{message.addr}:\n{traceback.format_exc()}",
                 )
                 message.close()
         # check for a socket being monitored to continue

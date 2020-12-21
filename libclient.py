@@ -15,7 +15,7 @@ class Message:
         self._send_buffer = b""
         self._request_queued = False
         self._jsonheader_len = None
-        self._jsonheader = None
+        self.jsonheader = None
         self.response = None
 
     def _set_selector_events_mask(self, mode):
@@ -100,7 +100,7 @@ class Message:
         self._read()
 
         if self._jsonheader_len is None:
-            self.procses_protoheader()
+            self.process_protoheader()
 
         if self._jsonheader_len is not None:
             if self.jsonheader is None:
@@ -165,7 +165,7 @@ class Message:
         hdrlen = 2
         if len(self._recv_buffer) >= hdrlen:
             self._jsonheader_len = struct.unpack(
-                ">H", self._recv_buffer[:hdrln]
+                ">H", self._recv_buffer[:hdrlen]
             )[0]
             self._recv_buffer = self._recv_buffer[hdrlen:]
 
@@ -182,7 +182,7 @@ class Message:
                 "content-type",
                 "content-encoding",
             ):
-                if reqhdr not in self.jsonheder:
+                if reqhdr not in self.jsonheader:
                     raise ValueError(f'Missing required header "{reqhdr}".')
 
     def process_response(self):
